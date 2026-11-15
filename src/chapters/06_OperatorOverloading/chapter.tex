@@ -1,0 +1,1140 @@
+\chapter{運算子多載與複製}
+\label{ch:operators-copy}
+
+第~3~章的 \texttt{string} 可以寫 \texttt{a + b}、\texttt{a == b}、
+\texttt{s[0]}，\texttt{cout << x} 什麼型別都能印。 這些運算子都是函式，
+只是呼叫的寫法不一樣。 這一章先替自己的類別寫運算子：算術、比較、輸出和
+下標。
+
+後半章處理第~5~章留下的問題：擁有原始指標的 \texttt{IntArray} 一複製就
+重複釋放。 我們會自己寫複製建構子和複製指定運算子，再看移動，最後整理成
+三條規則：三法則、五法則和零法則。
+
+\section{運算子也是函式}
+\label{sec:op-basics}
+
+\begin{crecap}[對結構做運算的函式]
+C 的運算子只能用在內建型別上。 自己定義的結構要相加，只能寫一個函式：
+
+\begin{code}{c}{C 的分數}
+struct Frac {
+    int num, den;
+};
+
+struct Frac frac_add(struct Frac a, struct Frac b) {
+    struct Frac r = {a.num * b.den + b.num * a.den, a.den * b.den};
+    return r;          /* 約分省略 */
+}
+
+struct Frac frac_mul(struct Frac a, struct Frac b) {
+    struct Frac r = {a.num * b.num, a.den * b.den};
+    return r;
+}
+
+/* main 裡 */
+struct Frac d = frac_add(frac_mul(a, b), c);   /* a * b + c */
+\end{code}
+
+這樣寫沒有錯，但式子一長，就得對著括號慢慢拆，才看得出算的是
+\texttt{a * b + c}。
+\end{crecap}
+
+C++ 可以替自己的類別定義運算子，叫\textbf{運算子多載}（operator
+overloading）。 運算子就是一個名稱特別的函式：\texttt{operator+} 是
+\texttt{+}，\texttt{operator+=} 是 \texttt{+=}。 寫了 \texttt{operator+}
+之後，\texttt{a + b} 就等於呼叫 \texttt{operator+(a, b)}。
+
+下面的 \texttt{Fraction} 表示一個分數。 不變量是分母大於 $0$，而且一定是
+約分過的。 約分用 \texttt{<numeric>} 裡的 \texttt{gcd}（最大公因數，
+C++17 起才有）：
+
+\begin{example}[label=ex:fraction]{cpp}{(fraction.cpp) 分數的加法與乘法}
+#include <iostream>
+#include <numeric>
+using namespace std;
+
+class Fraction {
+public:
+    Fraction(int n = 0, int d = 1) : num(n), den(d) {
+        normalize();
+    }
+    Fraction &operator+=(const Fraction &r) {
+        num = num * r.den + r.num * den;
+        den = den * r.den;
+        normalize();
+        return *this;
+    }
+    Fraction &operator*=(const Fraction &r) {
+        num = num * r.num;
+        den = den * r.den;
+        normalize();
+        return *this;
+    }
+    int getNum() const { return num; }
+    int getDen() const { return den; }
+
+private:
+    int num, den;    // 不變量：den > 0，而且 num/den 已經約分
+    void normalize() {
+        if (den < 0) {
+            num = -num;
+            den = -den;
+        }
+        int g = gcd(num, den);
+        num /= g;
+        den /= g;
+    }
+};
+
+Fraction operator+(Fraction a, const Fraction &b) {
+    a += b;
+    return a;
+}
+Fraction operator*(Fraction a, const Fraction &b) {
+    a *= b;
+    return a;
+}
+
+void show(const Fraction &f) {
+    cout << f.getNum() << '/' << f.getDen() << '\n';
+}
+
+int main() {
+    Fraction a(1, 2), b(2, -6);
+    show(b);
+    show(a + b);
+    show(a * b + Fraction(1, 4));
+    show(1 + b);
+
+    a += b;
+    a *= 3;
+    show(a);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+-1/3 \\
+1/6 \\
+1/12 \\
+2/3 \\
+1/2 \\
+}
+
+\begin{itemize}
+\item \texttt{+=}、\texttt{*=} 寫成成員函式。 \texttt{a += b}
+等於 \texttt{a.operator+=(b)}，左邊的 \texttt{a} 就是 \texttt{*this}，右
+邊的 \texttt{b} 是參數 \texttt{r}。 它們會改 \texttt{a}，所以不是
+\texttt{const}；回傳 \texttt{*this} 的參考，跟第~5~章的
+\texttt{deposit} 一樣，內建型別的 \texttt{x += 1} 本身也是 \texttt{x}。
+\item \texttt{+}、\texttt{*} 寫成類別外面的普通函式，用對應的
+複合指定來做。 參數 \texttt{a} 是傳值，函式拿到的是左邊運算元的複本，在複
+本上做 \texttt{+=}，再回傳複本。 \texttt{a + b} 不會改到 \texttt{a}，跟
+\texttt{int} 的 \texttt{+} 一樣。
+\item 加法的公式只寫在 \texttt{operator+=} 裡一個地方。 先寫複合指定，再用
+它寫 \texttt{+}，是常見的寫法。
+\item \texttt{Fraction(1, 4)} 建立一個暫時物件，跟 \texttt{a * b} 的結果
+相加。 \texttt{a * b + Fraction(1, 4)} 照一般的優先順序，先乘再加，就是
+C 回顧框裡想寫的那種式子。 減法照同樣的方式寫 \texttt{-=} 和 \texttt{-}。
+\item 建構子的兩個參數都有預設引數，所以 \texttt{Fraction(1)} 是
+$1/1$。 編譯器需要時會用這個建構子把 \texttt{int} 轉成
+\texttt{Fraction}：\texttt{1 + b} 先把 \texttt{1} 轉成 \texttt{Fraction(1)}，
+再呼叫 \texttt{operator+}；\texttt{a *= 3} 也一樣。
+\item 輸出暫時用 \texttt{show} 函式，下一節改成用 \texttt{cout <<}。
+\end{itemize}
+
+\subsection{成員還是非成員}
+
+運算子可以寫成成員函式，也可以寫成類別外面的函式。 寫成成員
+\texttt{Fraction operator+(const Fraction \&r) const} 的話，\texttt{a + b}
+等於 \texttt{a.operator+(b)}；寫成非成員，等於 \texttt{operator+(a, b)}。
+
+寫成成員時，左邊的運算元一定要是 \texttt{Fraction}，編譯器不會為了呼叫成
+員函式去轉換它。 \texttt{1 + b} 的左邊是 \texttt{int}，\texttt{int} 沒有
+成員函式，所以找不到。 寫成非成員時，兩個運算元都是普通參數，兩邊都能轉
+換，\texttt{b + 1} 和 \texttt{1 + b} 都可以用。 一般的選法是：
+
+\begin{itemize}
+\item 會改左邊運算元的（\texttt{+=}、\texttt{-=} 這類）寫成成員。
+\item 兩邊地位相同、不改運算元的（\texttt{+}、\texttt{-}、\texttt{==}、
+\texttt{<}）寫成非成員。
+\item \texttt{=}、\texttt{[]} 規定只能寫成成員（第~\ref{sec:subscript}~節）。
+\end{itemize}
+
+運算子多載也有限制：不能發明新的運算子（例如 \texttt{**}），不能改變優先
+順序和運算元的個數，運算元至少要有一個是自己定義的型別（不能重新定義
+\texttt{int + int}）。 \texttt{.}、\texttt{::}、\texttt{?:}、
+\texttt{sizeof} 不能多載。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{把 \texttt{+} 寫成成員}：拿掉範例裡類別外面的
+\texttt{operator+}，改成成員函式
+\texttt{Fraction operator+(const Fraction \&r) const}，\texttt{a + b} 還是
+可以用，\texttt{1 + b} 卻編譯失敗：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: no match for 'operator+' (operand types are 'int' and 'Fraction')
+\end{code}
+\item \textbf{參數漏了 \texttt{const}}：\texttt{operator+=} 的參數寫成
+\texttt{Fraction \&r}，兩個地方會編譯失敗。 \texttt{operator+} 裡的
+\texttt{a += b} 報 \texttt{binding reference of type 'Fraction\&' to
+'const Fraction' discards qualifiers}，因為 \texttt{b} 是 \texttt{const}
+參考；另外寫一行 \texttt{a += 3}，報 \texttt{cannot bind non-const lvalue reference of
+type 'Fraction\&' to an rvalue of type 'Fraction'}，因為 \texttt{3} 轉出來
+的 \texttt{Fraction} 是暫時物件（第~2~章）。 不改的參數一律用
+\texttt{const} 參考。
+\item \textbf{\texttt{+} 改到了左邊}：成員版的 \texttt{operator+} 寫成
+\texttt{*this += r; return *this;}（而且沒有標 \texttt{const}），編譯會過，
+但 \texttt{c = a + b;} 之後 \texttt{a} 也變了。 \texttt{+} 要在複本上做。
+\end{itemize}
+
+\section{比較與輸出}
+\label{sec:compare-output}
+
+\texttt{==} 和 \texttt{<} 回傳 \texttt{bool}。 \texttt{Fraction} 一定是約
+分過的，所以兩個分數相等，就是分子和分母都相等；不維持這個不變量的話，
+$1/2$ 和 $2/4$ 就會被判成不相等。 比較大小時，因為分母都是正的，
+$a/b < c/d$ 等於 $a \times d < c \times b$。
+
+有了 \texttt{==} 和 \texttt{<}，其他四個都可以用它們寫出來，不必各寫一套
+邏輯。 \texttt{sort} 預設用 \texttt{<} 比較元素，所以有了 \texttt{<}，
+\texttt{vector<Fraction>} 就能直接排序。 \texttt{sort} 在
+\texttt{<algorithm>} 裡，第~9~章再仔細講，這裡只用最基本的
+\texttt{sort(v.begin(), v.end())}。
+
+\begin{example}[label=ex:fraction-cmp]{cpp}{(fraction\_cmp.cpp) 比較運算子與 \texttt{<<}}
+#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <vector>
+using namespace std;
+
+class Fraction {
+public:
+    Fraction(int n = 0, int d = 1) : num(n), den(d) {
+        normalize();
+    }
+    // += *= 和上一個範例相同，這裡省略
+    int getNum() const { return num; }
+    int getDen() const { return den; }
+
+    friend ostream &operator<<(ostream &os, const Fraction &f) {
+        os << f.num;
+        if (f.den != 1) {
+            os << '/' << f.den;
+        }
+        return os;
+    }
+
+private:
+    int num, den;    // 不變量：den > 0，而且 num/den 已經約分
+    void normalize() {
+        if (den < 0) {
+            num = -num;
+            den = -den;
+        }
+        int g = gcd(num, den);
+        num /= g;
+        den /= g;
+    }
+};
+
+bool operator==(const Fraction &a, const Fraction &b) {
+    return a.getNum() == b.getNum() && a.getDen() == b.getDen();
+}
+bool operator!=(const Fraction &a, const Fraction &b) { return !(a == b); }
+bool operator<(const Fraction &a, const Fraction &b) {
+    return a.getNum() * b.getDen() < b.getNum() * a.getDen();
+}
+bool operator>(const Fraction &a, const Fraction &b) { return b < a; }
+bool operator<=(const Fraction &a, const Fraction &b) { return !(b < a); }
+bool operator>=(const Fraction &a, const Fraction &b) { return !(a < b); }
+
+int main() {
+    Fraction a(2, 4), b(1, 2), c(3, -4);
+    cout << a << ' ' << c << ' ' << Fraction(6, 3) << '\n';
+    cout << (a == b) << ' ' << (a != b) << ' ' << (c < a) << ' ' << (a >= 1) << '\n';
+
+    vector<Fraction> v = {Fraction(2, 3), c, Fraction(1, 6), 1, b};
+    sort(v.begin(), v.end());
+    for (const Fraction &f : v) {
+        cout << f << ' ';
+    }
+    cout << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1/2 -3/4 2 \\
+1 0 1 0 \\
+-3/4 1/6 1/2 2/3 1 \\
+}
+
+\begin{itemize}
+\item \texttt{a >= 1} 的右邊是 \texttt{int}，跟上一節的 \texttt{1 + b} 一
+樣先轉成 \texttt{Fraction}。 比較運算子寫成非成員，兩邊都能轉換。
+\item \texttt{a > b} 就是 \texttt{b < a}；\texttt{a <= b} 是「\texttt{b < a}
+不成立」。 六個運算子裡真正在比的只有 \texttt{==} 和 \texttt{<}，其他四
+個都是一行。
+\item 初始化 \texttt{v} 時，\texttt{1} 也轉成了 \texttt{Fraction}。 排序
+後由小到大印出，\texttt{2/1} 這種分母是 $1$ 的印成整數。
+\end{itemize}
+
+C++20 加了一個 \texttt{<=>} 運算子，寫一個就能讓編譯器補出其他比較。 本
+書用 C++17，所以照上面這樣寫齊。
+
+\subsection{輸出運算子 \texttt{<<}}
+
+\texttt{cout << f} 的左邊是 \texttt{cout}，型別是 \texttt{ostream}（在
+\texttt{<iostream>} 裡）。 寫成成員的話，左邊運算元得是
+\texttt{Fraction}，所以 \texttt{<<} 只能寫成非成員：
+
+\begin{itemize}
+\item 第一個參數是 \texttt{ostream \&}。 寫入資料會改變串流，所以不能是
+\texttt{const}；串流也不能複製，所以不能傳值。
+\item 回傳同一個 \texttt{ostream \&}。 \texttt{cout << a << ' ' << c} 是
+\texttt{((cout << a) << ' ') << c}，每一段都要回傳 \texttt{cout}，下一個
+\texttt{<<} 才接得上。 第~2~章說 \texttt{cout <<} 能串下去，就是這樣做的。
+\item 寫入時用參數 \texttt{os}，不要寫死 \texttt{cout}。 這樣同一個函式也
+能寫到其他串流，例如 \texttt{cerr}。
+\end{itemize}
+
+非成員函式不能存取 \texttt{private} 成員。 \texttt{Fraction} 有 getter，
+所以 \texttt{<<} 可以跟比較運算子一樣寫在外面，用 \texttt{getNum()}、
+\texttt{getDen()}。 範例示範另一種寫法：在類別裡把它宣告成
+\textbf{friend}（友元）。 \texttt{friend} 函式不是成員，沒有
+\texttt{this}，呼叫方式跟寫在外面完全一樣，但可以存取 \texttt{private}
+成員。 已經有適當的 getter 就用 getter；沒有、又不想為了輸出多開
+getter 時，才用 \texttt{friend}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{把 \texttt{<<} 寫成成員}：寫成
+\texttt{ostream \&operator<<(ostream \&os) const}，編譯器把它當成
+\texttt{f << cout} 的意思，\texttt{cout << a} 報 \texttt{no match for
+'operator<<' (operand types are 'std::ostream' \{aka
+'std::basic\_ostream<char>'\} and 'Fraction')}。 後面還有幾百行，列出標準函
+式庫裡每一個 \texttt{operator<<} 為什麼不合用。 看第一行就夠了：
+\texttt{operand types} 告訴你兩邊的型別。
+\item \textbf{回傳 \texttt{ostream} 而不是 \texttt{ostream \&}}：回傳型別
+少了 \texttt{\&}，就要複製串流，報 \texttt{use of deleted function}，後
+面接著的是 \texttt{basic\_ostream} 的複製建構子。 跟第~4~章的
+\texttt{unique\_ptr} 一樣，\texttt{deleted function} 表示這個型別禁止複製。
+\item \textbf{沒有 \texttt{<} 就排序}：拿掉 \texttt{operator<}，錯誤的位置在
+標準函式庫的 \texttt{predefined\_ops.h}，訊息是
+\texttt{no match for 'operator<' (operand types are 'Fraction' and
+'Fraction')}。 錯誤指著標準函式庫的檔案時，多半是自己的型別少了它需要
+的運算子。
+\end{itemize}
+
+\section{下標運算子}
+\label{sec:subscript}
+
+第~5~章的 \texttt{IntArray} 用 \texttt{get(i)} 和 \texttt{set(i, x)} 存
+取元素。 \texttt{vector} 用的是 \texttt{v[i]}，讀和寫都是它。 下標運算子
+\texttt{operator[]} 只能寫成成員，參數是下標，回傳元素的參考：
+
+\begin{example}[label=ex:subscript]{cpp}{(subscript.cpp) const 與非 const 兩個版本的 []}
+#include <iostream>
+using namespace std;
+
+class IntArray {
+public:
+    IntArray(int n) : len(n), data(new int[n]()) {}
+    ~IntArray() { delete[] data; }
+    int size() const { return len; }
+
+    int &operator[](int i) { return data[i]; }             // 可以改
+    const int &operator[](int i) const { return data[i]; } // 只能讀
+
+private:
+    int len;
+    int *data;
+};
+
+int sum(const IntArray &a) {
+    int s = 0;
+    for (int i = 0; i < a.size(); i++) {
+        s += a[i];                       // 呼叫 const 版本
+    }
+    return s;
+}
+
+int main() {
+    IntArray a(5);
+    for (int i = 0; i < a.size(); i++) {
+        a[i] = i * i;                    // 呼叫非 const 版本
+    }
+    a[4] += 100;
+    cout << a[2] << ' ' << a[4] << ' ' << sum(a) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+4 116 130 \\
+}
+
+\begin{itemize}
+\item \texttt{a[i]} 等於 \texttt{a.operator[](i)}。 回傳 \texttt{int \&}，
+所以 \texttt{a[i] = i * i} 和 \texttt{a[4] += 100} 改的是陣列裡的元素，
+跟第~2~章回傳參考的 \texttt{larger} 一樣。
+\item 兩個版本只差在 \texttt{const}。 \texttt{a} 不是 \texttt{const}，用
+第一個；\texttt{sum} 裡的 \texttt{a} 是 \texttt{const} 參考，只能呼叫
+\texttt{const} 成員函式，用第二個。 第二個回傳 \texttt{const int \&}，透
+過 \texttt{const} 參考拿到的元素也只能讀。 元素是 \texttt{int} 這種小型別
+時，\texttt{const} 版本也可以直接回傳 \texttt{int}。
+\item 跟 \texttt{vector} 的 \texttt{[]} 一樣，不檢查下標。 要檢查可以另外
+寫一個 \texttt{at}。
+\item 這個 \texttt{IntArray} 一複製還是會重複釋放，下一節處理。
+\end{itemize}
+
+\subsection{讓運算子不出人意料}
+
+讀程式的人看到 \texttt{a + b}，會用他對 \texttt{int} 的 \texttt{+} 的理
+解去讀。 自己寫的運算子要跟這個理解一致：
+
+\begin{itemize}
+\item \textbf{意思要明顯}。 \texttt{Fraction} 的 \texttt{+} 就是分數加
+法，沒有疑問。 二維向量 \texttt{Vector2} 的 \texttt{+} 是向量加法，但
+\texttt{p * q} 是內積還是逐項相乘？ 讀的人猜不出來，就不要用運算子，取名
+\texttt{dot(p, q)}。 向量乘上一個數字倒是意思明顯，\texttt{v * 2} 可以用運
+算子寫（本章練習第~3~題）。
+\item \textbf{不改不該改的東西}。 \texttt{+}、\texttt{==}、\texttt{<} 不
+改運算元，\texttt{+=} 只改左邊。
+\item \textbf{成組的運算子要一致}。 有 \texttt{+} 就有 \texttt{+=}，而且
+\texttt{a = a + b} 跟 \texttt{a += b} 結果相同；有 \texttt{==} 就有
+\texttt{!=}；\texttt{<}、\texttt{>}、\texttt{<=}、\texttt{>=} 彼此不矛盾。
+用 \texttt{+=} 寫 \texttt{+}、用 \texttt{<} 寫其他三個，就是為了這個。
+\item \textbf{\texttt{<} 要是真的「小於」}。 \texttt{sort} 假設
+\texttt{a < a} 是假，\texttt{a < b} 和 \texttt{b < c} 成立時
+\texttt{a < c} 也成立。 寫成 \texttt{<=} 或其他不滿足這些條件的比較，
+\texttt{sort} 的行為是未定義的，甚至可能越界。
+\item \textbf{不要多載 \texttt{\&\&}、\texttt{||} 和逗號}。 內建的
+\texttt{\&\&} 左邊是假就不算右邊，自己多載的版本是普通函式，兩邊都會先
+算，讀的人以為還有短路求值。
+\end{itemize}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只寫非 \texttt{const} 版本}：刪掉範例裡的 \texttt{const}
+版本，\texttt{sum} 裡的 \texttt{a[i]} 報第~5~章看過的
+\texttt{passing 'const IntArray' as 'this' argument discards
+qualifiers}。
+\item \textbf{非 \texttt{const} 版本回傳 \texttt{int}}：少了 \texttt{\&}，
+回傳的是元素的複本，\texttt{a[i] = i * i} 報 \texttt{lvalue required as
+left operand of assignment}，意思是等號左邊不是一個可以寫入的東西。
+\item \textbf{\texttt{const} 版本回傳 \texttt{int \&}}：寫成
+\texttt{int \&operator[](int i) const}，編譯會過，\texttt{-Wall -Wextra}
+也沒有警告，結果 \texttt{sum} 裡可以寫 \texttt{a[i] = 0} 改掉元素。
+\texttt{const} 成員函式裡，\texttt{data} 這個指標本身不能改，它指向的
+\texttt{int} 卻不受影響，所以編譯器不會擋。 要靠自己把回傳型別寫成
+\texttt{const int \&}。
+\end{itemize}
+
+\section{複製建構子與複製指定運算子}
+\label{sec:copy}
+
+\begin{crecap}[結構指定只複製成員]
+C 的結構可以用 \texttt{=} 指定，效果是把每個成員的位元組照抄一份。 成員是
+指標時，抄的是位址：
+
+\begin{code}{c}{複製含指標的結構}
+struct Array {
+    int len;
+    int *data;
+};
+
+struct Array a = {3, malloc(3 * sizeof(int))};
+a.data[0] = 7;
+struct Array b = a;     /* 複製 len 和 data 這兩個成員 */
+b.data[0] = 99;
+printf("%d\n", a.data[0]);   /* 99 */
+free(a.data);           /* 只能 free 一次，b.data 也跟著失效 */
+\end{code}
+
+\texttt{a} 和 \texttt{b} 共用同一塊記憶體。 要各自一份，C 只能自己寫一個
+複製函式，配置新的記憶體再 \texttt{memcpy}，而且每次複製都要記得呼叫它。
+\end{crecap}
+
+C++ 的類別也是這樣：沒有自己寫的話，編譯器會產生一個\textbf{複製建構子}
+和一個\textbf{複製指定運算子}，逐一複製每個成員。 成員是 \texttt{int}、
+\texttt{string}、\texttt{vector} 時，逐一複製就是正確的複製；成員是原始指
+標時，就是第~5~章看到的重複釋放。
+
+C++ 跟 C 不同的地方是，可以自己寫這兩個函式，之後每一次複製都自動用自己的
+版本，不用記得呼叫什麼：
+
+\begin{itemize}
+\item 複製建構子 \texttt{IntArray(const IntArray \&other)}：用一個已經存在
+的物件\emph{建立}新物件時呼叫，例如 \texttt{IntArray b = a;}、
+\texttt{IntArray b(a);}，以及傳值傳進函式。
+\item 複製指定運算子 \texttt{IntArray \&operator=(const IntArray \&other)}：
+兩個\emph{已經存在}的物件之間寫 \texttt{c = a;} 時呼叫。
+\end{itemize}
+
+\texttt{IntArray b = a;} 雖然有等號，但 \texttt{b} 是這一行才建立的，用的
+是複製建構子。 判斷的方法是看左邊的物件之前存不存在。
+
+\begin{example}[label=ex:copy-ctor]{cpp}{(copy\_ctor.cpp) 自己寫的複製建構子與複製指定運算子}
+#include <iostream>
+using namespace std;
+
+class IntArray {
+public:
+    IntArray(int n) : len(n), data(new int[n]()) {}
+
+    IntArray(const IntArray &other)                 // 複製建構子
+        : len(other.len), data(new int[other.len]) {
+        for (int i = 0; i < len; i++) {
+            data[i] = other.data[i];
+        }
+        cout << "複製建構" << '\n';
+    }
+
+    IntArray &operator=(const IntArray &other) {    // 複製指定運算子
+        cout << "複製指定" << '\n';
+        if (this == &other) {                       // a = a 什麼都不做
+            return *this;
+        }
+        int *fresh = new int[other.len];
+        for (int i = 0; i < other.len; i++) {
+            fresh[i] = other.data[i];
+        }
+        delete[] data;                              // 舊的陣列不要了
+        data = fresh;
+        len = other.len;
+        return *this;
+    }
+
+    ~IntArray() { delete[] data; }
+
+    int size() const { return len; }
+    int &operator[](int i) { return data[i]; }
+
+private:
+    int len;
+    int *data;
+};
+
+int main() {
+    IntArray a(3);
+    a[0] = 7;
+    IntArray b = a;          // 建立 b：複製建構子
+    b[0] = 99;
+    cout << a[0] << ' ' << b[0] << '\n';
+
+    IntArray c(5);
+    c = a;                   // c 已經存在：複製指定運算子
+    c = c;                   // 自己指定給自己
+    cout << c.size() << ' ' << c[0] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+複製建構 \\
+7 99 \\
+複製指定 \\
+複製指定 \\
+3 7 \\
+}
+
+\begin{itemize}
+\item 複製建構子配置一塊新的陣列，把元素一個一個抄過去。 這叫\textbf{深
+複製}（deep copy）；只抄指標的叫\textbf{淺複製}（shallow copy）。 改
+\texttt{b[0]} 不再影響 \texttt{a}，三個物件各自釋放自己的陣列，用 ASan 跑
+也沒有錯誤。
+\item 複製建構子的參數一定要是參考。 寫成 \texttt{IntArray(IntArray
+other)}，傳值本身就要先複製一次，會變成無窮遞迴，所以編譯器直接拒絕：
+\texttt{invalid constructor; you probably meant 'IntArray (const
+IntArray\&)'}。
+\item 複製指定比複製建構多了兩件事。 \texttt{c} 原本有一個長度 $5$ 的陣
+列，換成新的之前要先 \texttt{delete[]}，不然就洩漏了。 另外要處理
+\texttt{c = c} 這種自己指定給自己的情況，下面說明。
+\item 複製指定回傳 \texttt{*this} 的參考，跟 \texttt{+=} 一樣。 內建型別
+可以寫 \texttt{x = y = 0}，自己的類別也照這個習慣。
+\end{itemize}
+
+\subsection{自我指定}
+
+範例最後的 \texttt{c = c} 看起來沒有人會寫，但 \texttt{v[i] = v[j]} 在 \texttt{i}
+和 \texttt{j} 相等時就是這種情況。 假如 \texttt{operator=} 照直覺寫成三
+步：先 \texttt{delete[] data;}，再 \texttt{data = new int[other.len];}，
+最後用迴圈把 \texttt{other.data[i]} 抄進 \texttt{data[i]}。
+
+\texttt{other} 就是 \texttt{*this} 時，\texttt{other.data} 和
+\texttt{data} 是同一個成員。 第一步把原本的陣列釋放了，第二步
+\texttt{data} 換成一塊還沒有初始化的新陣列，第三步把它自己抄給自己，原本的元素就
+這樣不見了。 \texttt{a[0] = 7; a = a;} 之後印 \texttt{a[0]}，在本書測
+試的環境下每次執行印出不同的數字，不是 \texttt{7}。
+
+範例的寫法用兩個方法避開這個問題。 一是開頭檢查 \texttt{this == \&other}，
+是同一個物件就直接回傳。 二是先配置新陣列、抄完，最後才
+\texttt{delete[]} 舊的；就算沒有那個檢查，自我指定也只是多抄一次。 這個
+順序還有一個好處：\texttt{new} 配置失敗時會丟出例外（第~4~章），這時舊的
+陣列還在，\texttt{c} 保持原樣。
+
+\subsection{複製後交換}
+
+複製指定還有一種更短的寫法，叫\textbf{複製後交換}（copy-and-swap）：
+
+\begin{code}{cpp}{用複製後交換寫 operator=}
+IntArray &operator=(IntArray other) {   // 傳值：other 是一份複本
+    swap(len, other.len);
+    swap(data, other.data);
+    return *this;
+}                                       // other 帶著舊的陣列銷毀
+\end{code}
+
+參數改成傳值，呼叫時就先用複製建構子做出一份複本 \texttt{other}。 接著把
+自己和 \texttt{other} 的成員互換（\texttt{std::swap}，在
+\texttt{<utility>} 裡）：\texttt{*this} 拿到新複製的陣列，\texttt{other}
+拿到舊的。 函式結束時 \texttt{other} 銷毀，它的解構子替我們釋放舊的陣列。
+
+複製的工作交給複製建構子，釋放交給解構子，\texttt{operator=} 自己不碰
+\texttt{new} 和 \texttt{delete}。 自我指定也不用特別處理：\texttt{other}
+是另一份複本，跟自己互換不會出問題。 代價是自我指定時也會複製一次，通常
+不在意。 下一節會看到，這個寫法同時也能當移動指定。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只寫了複製建構子}：忘了寫 \texttt{operator=}，編譯器產生的
+複製指定還是只抄指標，\texttt{c = a;} 照樣重複釋放。 \texttt{g++ -Wextra}
+在用到它的地方會警告 \texttt{implicitly-declared ... operator=(const
+...\&)' is deprecated [-Wdeprecated-copy]}，原因寫在下一行：類別有自己寫的
+複製建構子（本章練習第~4~題）。 看到這個警告，就要把 \texttt{operator=}
+補上。
+\item \textbf{複製指定沒有釋放舊的陣列}：直接寫 \texttt{data = new
+int[other.len];}，原本的陣列就沒有指標記得了，ASan 在程式結束時報
+\texttt{detected memory leaks}。
+\end{itemize}
+
+\section{移動，以及三法則、五法則、零法則}
+\label{sec:rule-of-zero}
+
+第~4~章說過，\texttt{vector} 被 \texttt{std::move} 之後，新的
+\texttt{vector} 直接接手舊的那塊記憶體，一個元素都不用複製。 自己的類別
+要做到這件事，要寫\textbf{移動建構子}（move constructor）。 移動指定運
+算子可以不另外寫：上一節複製後交換的 \texttt{operator=} 參數是傳值，
+\texttt{other} 由引數建立，引數是 rvalue 時用的就是移動建構子。 下面把它
+們放在一起，複製和移動時各印一行：
+
+\begin{example}[label=ex:move]{cpp}{(move.cpp) 移動建構子與複製後交換}
+#include <iostream>
+#include <utility>
+using namespace std;
+
+class IntArray {
+public:
+    IntArray(int n) : len(n), data(new int[n]()) {}
+
+    IntArray(const IntArray &other)                 // 複製建構子
+        : len(other.len), data(new int[other.len]) {
+        for (int i = 0; i < len; i++) {
+            data[i] = other.data[i];
+        }
+        cout << "複製 " << len << " 個" << '\n';
+    }
+
+    IntArray(IntArray &&other) noexcept             // 移動建構子
+        : len(other.len), data(other.data) {
+        other.len = 0;
+        other.data = nullptr;
+        cout << "移動" << '\n';
+    }
+
+    IntArray &operator=(IntArray other) {           // 複製指定兼移動指定
+        swap(len, other.len);
+        swap(data, other.data);
+        return *this;
+    }                                               // other 帶著舊陣列銷毀
+
+    ~IntArray() { delete[] data; }
+
+    int size() const { return len; }
+    int &operator[](int i) { return data[i]; }
+
+private:
+    int len;
+    int *data;
+};
+
+int main() {
+    IntArray a(4);
+    a[3] = 9;
+    IntArray b = a;                  // a 之後還要用：複製
+    IntArray c = std::move(a);       // a 不再用了：移動
+    cout << a.size() << ' ' << c.size() << ' ' << c[3] << '\n';
+
+    b = c;                           // 參數 other 由 c 複製而來
+    b = IntArray(2);                 // 參數 other 直接拿暫時物件
+    a = std::move(c);                // 參數 other 由 c 移動而來
+    cout << a.size() << ' ' << b.size() << ' ' << b[1] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+複製 4 個 \\
+移動 \\
+0 4 9 \\
+複製 4 個 \\
+移動 \\
+4 2 0 \\
+}
+
+先看移動建構子：
+
+\begin{itemize}
+\item 參數型別 \texttt{IntArray \&\&} 是 \textbf{rvalue 參考}，只能綁定
+rvalue：暫時物件，或者用 \texttt{std::move} 標成「可以被搬走」的物件。
+複製建構子的參數 \texttt{const IntArray \&} 什麼都能綁，所以兩個都能用時，
+編譯器對 rvalue 選移動建構子。
+\item 移動就是把指標拿過來，再把 \texttt{other} 的指標設成
+\texttt{nullptr}。 少了這一步，兩個物件又會指著同一個陣列，\texttt{other}
+銷毀時就把它釋放了。 \texttt{delete[] nullptr} 什麼都不做，所以被移走的
+物件可以正常銷毀。
+\item \texttt{noexcept} 表示這個函式不會丟出例外。 移動只是搬幾個成員，本
+來就不會失敗，寫上它，\texttt{vector} 擴充容量時才會用移動（見本節的常見
+錯誤）。
+\end{itemize}
+
+再對照輸出：
+
+\begin{itemize}
+\item \texttt{IntArray c = std::move(a);} 用移動建構子。 \texttt{a} 被移
+走之後，\texttt{a.size()} 是 $0$。 這是我們自己的移動建構子保證的；一般
+的型別被移走後是有效但未指定的狀態（第~4~章），不要依賴它的內容。
+\item 後面三行都呼叫同一個 \texttt{operator=}，差別在參數 \texttt{other}
+怎麼建立：\texttt{b = c} 的 \texttt{c} 是 lvalue，用複製建構子；
+\texttt{IntArray(2)} 是暫時物件，直接成為 \texttt{other}，什麼都沒
+印；\texttt{std::move(c)} 用移動建構子。
+\item 用 ASan 跑，沒有重複釋放也沒有洩漏。
+\end{itemize}
+
+\subsection{編譯器會產生哪些函式}
+
+建構子以外，下面五個函式叫\textbf{特殊成員函式}。 沒有自己寫的時候，編譯
+器會在需要時產生，做法都是對每個成員做同一件事：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+函式 & 宣告 & 編譯器產生的版本 \\
+\midrule
+解構子 & \texttt{\textasciitilde IntArray()} & 銷毀每個成員 \\
+複製建構子 & \texttt{IntArray(const IntArray \&)} & 逐一複製成員 \\
+複製指定 & \texttt{IntArray \&operator=(const IntArray \&)} & 逐一指定成員 \\
+移動建構子 & \texttt{IntArray(IntArray \&\&)} & 逐一移動成員 \\
+移動指定 & \texttt{IntArray \&operator=(IntArray \&\&)} & 逐一移動指定成員 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+要注意的規則是：只要自己寫了解構子、複製建構子或複製指定其中任何一個，編
+譯器就\emph{不}產生移動建構子和移動指定。 這時 \texttt{std::move(a)} 不
+會出錯，而是改用複製。 例如範例~\ref{ex:copy-ctor} 的 \texttt{IntArray}
+沒有移動建構子，寫 \texttt{IntArray c = std::move(a);} 會印出「複製建構」，
+之後 \texttt{a.size()} 還是 $3$。 結果正確，只是慢。
+
+第~5~章那個只寫了解構子的 \texttt{IntArray} 也是這樣：沒有移動，複製又是
+編譯器產生的淺複製，所以 \texttt{std::move} 也救不了它。
+
+不想要某個函式時，在宣告後面寫 \texttt{= delete}；想明確表示「用編譯器產生
+的版本」時，寫 \texttt{= default}。 第~5~章練習第~4~題的 \texttt{Account}
+每個帳戶有自己的編號，不應該被複製，可以這樣禁止：
+
+\begin{code}{cpp}{禁止複製 Account}
+class Account {
+public:
+    Account(const string &owner) : id(opened + 1), owner(owner) {
+        opened++;
+    }
+    Account(const Account &) = delete;
+    Account &operator=(const Account &) = delete;
+    // ...
+};
+\end{code}
+
+這時 \texttt{Account c = a;} 報 \texttt{use of deleted function
+'Account::Account(const Account\&)'}，跟複製 \texttt{unique\_ptr} 時看到的一樣。
+
+\subsection{三法則、五法則、零法則}
+
+\begin{itemize}
+\item \textbf{三法則}（rule of three）：解構子、複製建構子、複製指定，自己
+寫了其中一個，通常三個都要寫。 需要自己寫解構子，表示類別直接管著某個資源
+（例如 \texttt{new[]} 來的陣列），編譯器產生的複製只會複製指標。
+\item \textbf{五法則}（rule of five）：再加上移動建構子和移動指定。 寫了
+三法則的那三個，編譯器就不產生移動，想要移動得自己寫（或者像範例那樣，
+用傳值的 \texttt{operator=} 一次處理兩種指定）。
+\item \textbf{零法則}（rule of zero）：一個都不寫。 資源交給已經寫好這五
+個函式的型別來管，例如 \texttt{string}、\texttt{vector}、
+\texttt{unique\_ptr}，類別本身只放這些成員，五個函式都用編譯器產生的。
+\end{itemize}
+
+本書的建議是零法則。 範例~\ref{ex:move} 的 \texttt{IntArray} 寫了四十多
+行，才做到 \texttt{vector<int>} 本來就會的事，其中任何一行寫錯都是重複釋放
+或洩漏。 三法則、五法則是在你真的要自己寫一個管理資源的型別時才用得上，
+例如自己實作一個容器；一般的類別用零法則：
+
+\begin{example}[label=ex:rule-of-zero]{cpp}{(rule\_of\_zero.cpp) 成員管好自己，類別什麼都不用寫}
+#include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
+using namespace std;
+
+class Scores {
+public:
+    Scores(const string &name) : name(name) {}
+    void add(int x) { data.push_back(x); }
+    int &operator[](int i) { return data[i]; }
+
+    friend ostream &operator<<(ostream &os, const Scores &s) {
+        os << s.name << ':';
+        for (int x : s.data) {
+            os << ' ' << x;
+        }
+        return os;
+    }
+
+private:
+    string name;
+    vector<int> data;        // 沒有寫解構子、複製和移動，全部由編譯器產生
+};
+
+int main() {
+    Scores a("Ada");
+    a.add(90);
+    a.add(75);
+
+    Scores b = a;            // 複製：b 有自己的 name 和 data
+    b[1] = 100;
+    cout << a << '\n' << b << '\n';
+
+    a = b;                   // 複製指定
+    vector<Scores> all;
+    all.push_back(std::move(b));   // 移動：不複製元素
+    all.push_back(Scores("Alan"));
+    all[1].add(60);
+    cout << a << '\n' << all[0] << '\n' << all[1] << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Ada: 90 75 \\
+Ada: 90 100 \\
+Ada: 90 100 \\
+Ada: 90 100 \\
+Alan: 60 \\
+}
+
+編譯器產生的複製建構子逐一複製 \texttt{name} 和 \texttt{data}，而
+\texttt{string}、\texttt{vector} 的複製本來就是深複製，所以 \texttt{b}
+有自己的一份。 移動、指定、銷毀也都是交給成員自己處理。 成員是
+\texttt{unique\_ptr} 的類別也一樣不用寫：\texttt{unique\_ptr} 不能複製，類
+別也就自動不能複製，但可以移動。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{移動建構子沒有寫 \texttt{noexcept}}：\texttt{vector} 擴充容量
+時要把舊元素搬到新的記憶體。 搬到一半如果有例外，已經移動過去的元素回不
+來，所以 \texttt{vector} 只在移動建構子標了 \texttt{noexcept} 時才用移
+動，否則改用複製。 拿範例~\ref{ex:move} 的 \texttt{IntArray} 做三次
+\texttt{v.push\_back(IntArray(i))}（\texttt{i} 是 $1$、$2$、$3$），容量依
+序變成 $1$、$2$、$4$。 有 \texttt{noexcept} 時印出六次「移動」：三次是把
+暫時物件移進 \texttt{vector}，三次是擴充時搬舊元素。 拿掉
+\texttt{noexcept} 後，擴充時搬舊元素的那三次變成「複製 1 個」、「複製 1
+個」、「複製 2 個」。
+\item \textbf{寫了解構子，以為還有移動}：如上面所說，這時編譯器不產生移
+動，\texttt{std::move} 會默默改用複製。 只寫了解構子的類別，複製還是淺複
+製。
+\item \textbf{零法則的類別裡又寫了空的解構子}：在 \texttt{Scores} 裡加一行
+\texttt{\textasciitilde Scores() \{\}}，程式還是對的，但編譯器就不產生移動
+了，\texttt{all.push\_back(std::move(b))} 變成複製整個 \texttt{vector}。
+不需要做事的解構子就不要寫。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch6-exercises}
+
+\begin{drills}[label=drills:ch6]
+\item 預測下面程式的輸出。
+\begin{code}{cpp}{練習：哪一行呼叫哪一個函式}
+#include <iostream>
+using namespace std;
+
+struct T {
+    int v;
+    T(int x) : v(x) { cout << "C" << v << ' '; }
+    T(const T &o) : v(o.v) { cout << "K" << v << ' '; }
+    T &operator=(const T &o) {
+        v = o.v;
+        cout << "A" << v << ' ';
+        return *this;
+    }
+    ~T() { cout << "D" << v << ' '; }
+};
+
+void f(T t) { cout << "f" << t.v << ' '; }
+void g(const T &t) { cout << "g" << t.v << ' '; }
+
+int main() {
+    T a(1);
+    T b = a;
+    T c(2);
+    c = b;
+    cout << '\n';
+    f(c);
+    g(c);
+    cout << '\n';
+    c = T(3);
+    cout << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式編譯失敗。 找出所有問題並改正，讓它輸出
+\texttt{0.05 1.50 2.75 4.30}。 其中有一個問題，\texttt{g++} 這次沒有報錯。
+\begin{code}{cpp}{練習：找錯}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+class Money {
+public:
+    Money(int cents = 0) : cents(cents) {}
+    Money &operator+=(Money &r) {
+        cents += r.cents;
+        return *this;
+    }
+    bool operator<(const Money &r) {
+        return cents < r.cents;
+    }
+    ostream &operator<<(ostream &os) const {
+        return os << cents / 100 << '.' << cents % 100 / 10 << cents % 10;
+    }
+
+private:
+    int cents;
+};
+
+Money operator+(Money a, const Money &b) {
+    a += b;
+    return a;
+}
+
+int main() {
+    vector<Money> v = {Money(275), Money(150), Money(5)};
+    sort(v.begin(), v.end());
+    Money total;
+    for (const Money &m : v) {
+        total += m;
+        cout << m << ' ';
+    }
+    cout << total << '\n';
+    return 0;
+}
+\end{code}
+\item 寫一個二維向量類別 \texttt{Vector2}，成員是兩個 \texttt{double}
+\texttt{x}、\texttt{y}。 提供 \texttt{+}、\texttt{+=}、向量乘以數字（\texttt{v * 2} 和
+\texttt{2 * v} 都要能用）、\texttt{==}、輸出成 \texttt{(x, y)} 的 \texttt{<<}，內積用一
+個普通函式 \texttt{dot}。 用下面的 \texttt{main} 測試：
+\begin{code}{cpp}{練習 3 的 main}
+int main() {
+    Vector2 p(1, 2), q(3, -1);
+    cout << p + q << ' ' << 2 * p << ' ' << q * 0.5 << '\n';
+    cout << dot(p, q) << ' ' << (p + q == Vector2(4, 1)) << '\n';
+    p += q;
+    p *= 3;
+    cout << p << '\n';
+    return 0;
+}
+\end{code}
+應該輸出 \texttt{(4, 1) (2, 4) (1.5, -0.5)}、\texttt{1 1}、
+\texttt{(12, 3)} 三行。 \texttt{p *= 3} 表示你還需要哪一個運算子？
+\item 下面的 \texttt{Text} 用 C 的字串函式管理一塊 \texttt{char} 陣列。
+用 \texttt{g++ -Wall -Wextra} 編譯會出現一個警告；在終端機執行，印出
+\texttt{hello jello hello} 之後，接著印出
+\texttt{free(): double free detected in tcache 2} 並異常結束。 說明原因，
+再用兩種方法改正：(a) 照三法則補上缺的函式；(b) 照零法則改用
+\texttt{string}。
+\begin{code}{cpp}{(text.cpp) 練習：少了一個函式}
+#include <cstring>
+#include <iostream>
+using namespace std;
+
+class Text {
+public:
+    Text(const char *s) : len(strlen(s)), buf(new char[len + 1]) {
+        strcpy(buf, s);
+    }
+    Text(const Text &other) : len(other.len), buf(new char[len + 1]) {
+        strcpy(buf, other.buf);
+    }
+    ~Text() { delete[] buf; }
+
+    char &operator[](int i) { return buf[i]; }
+    friend ostream &operator<<(ostream &os, const Text &t) {
+        return os << t.buf;
+    }
+
+private:
+    int len;
+    char *buf;
+};
+
+int main() {
+    Text a("hello");
+    Text b = a;
+    b[0] = 'j';
+    Text c("hi");
+    c = a;
+    cout << a << ' ' << b << ' ' << c << '\n';
+    return 0;
+}
+\end{code}
+\item 下面每個類別只列出成員變數。 判斷每一個應該照零法則什麼都不寫、照三
+法則（或五法則）自己寫，還是應該用 \texttt{= delete} 禁止複製：
+\begin{enumerate}
+\item \texttt{string name; vector<int> scores;}
+\item \texttt{int *buf; int len;}，\texttt{buf} 指向建構子 \texttt{new[]}
+來的陣列。
+\item \texttt{unique\_ptr<int[]> buf; int len;}
+\item \texttt{FILE *fp;}，建構子 \texttt{fopen}、解構子 \texttt{fclose}。
+\item \texttt{vector<string> \&log;}，跟第~5~章的 \texttt{Recorder} 一樣綁
+著呼叫者的 \texttt{vector}。
+\end{enumerate}
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出四行：\texttt{C1 K1 C2 A1 }、\texttt{K1 f1 D1 g1 }、
+\texttt{C3 A3 D3 }、\texttt{D3 D1 D1 }（最後一行沒有換行）。
+\texttt{T b = a;} 是建立 \texttt{b}，用複製建構子（\texttt{K}）；
+\texttt{c = b;} 時 \texttt{c} 已經存在，用複製指定（\texttt{A}）。
+\texttt{f(c)} 傳值，參數 \texttt{t} 由複製建構子建立，\texttt{f} 結束時
+\texttt{t} 銷毀，印 \texttt{D1}；\texttt{g(c)} 傳 \texttt{const} 參考，不
+複製。 \texttt{c = T(3)} 先建立暫時物件（\texttt{C3}），指定給
+\texttt{c}（\texttt{A3}），分號一到暫時物件就銷毀（\texttt{D3}）。 這個
+\texttt{T} 沒有移動指定，因為自己寫了複製指定和解構子，所以暫時物件也是用
+複製指定。 最後 \texttt{c}、\texttt{b}、\texttt{a} 以相反順序銷毀，
+\texttt{c} 的值已經是 $3$。
+\item 三個問題：
+(1) \texttt{operator+=} 的參數要是 \texttt{const Money \&}。
+\texttt{operator+} 裡的 \texttt{b} 和迴圈裡的 \texttt{m} 都是
+\texttt{const} 參考，兩處都報 \texttt{binding reference of type
+'Money\&' to 'const Money' discards qualifiers}。
+(2) \texttt{<<} 寫成了成員，\texttt{cout << m} 和 \texttt{cout << total}
+報 \texttt{no match for 'operator<<'}。 改成
+\texttt{friend ostream \&operator<<(ostream \&os, const Money \&m)}，函式
+裡的 \texttt{cents} 都改成 \texttt{m.cents}。
+(3) \texttt{operator<} 不改物件，卻沒有標 \texttt{const}。 這次
+\texttt{sort} 剛好只用非 \texttt{const} 的元素比較，所以編譯得過；兩個
+\texttt{const Money} 比較時就會失敗。 最好照第~\ref{sec:compare-output}~節
+寫成非成員 \texttt{bool operator<(const Money \&a, const Money \&b)}，再替
+\texttt{Money} 加一個 \texttt{getCents() const}。
+改完後輸出 \texttt{0.05 1.50 2.75 4.30}。 \texttt{\%} 那一串是在補足小數點
+後兩位：$5$ 分印成 \texttt{0.05}，不是 \texttt{0.5}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答（main 同題目）}
+#include <iostream>
+using namespace std;
+
+class Vector2 {
+public:
+    Vector2(double x = 0, double y = 0) : x(x), y(y) {}
+    double getX() const { return x; }
+    double getY() const { return y; }
+
+    Vector2 &operator+=(const Vector2 &r) {
+        x += r.x;
+        y += r.y;
+        return *this;
+    }
+    Vector2 &operator*=(double k) {
+        x *= k;
+        y *= k;
+        return *this;
+    }
+
+private:
+    double x, y;
+};
+
+Vector2 operator+(Vector2 a, const Vector2 &b) { return a += b; }
+Vector2 operator*(Vector2 v, double k) { return v *= k; }
+Vector2 operator*(double k, Vector2 v) { return v *= k; }
+
+bool operator==(const Vector2 &a, const Vector2 &b) {
+    return a.getX() == b.getX() && a.getY() == b.getY();
+}
+
+double dot(const Vector2 &a, const Vector2 &b) {
+    return a.getX() * b.getX() + a.getY() * b.getY();
+}
+
+ostream &operator<<(ostream &os, const Vector2 &v) {
+    return os << '(' << v.getX() << ", " << v.getY() << ')';
+}
+\end{code}
+\texttt{p *= 3} 需要 \texttt{operator*=}，\texttt{v * k} 和 \texttt{k * v}
+都用它來寫。 \texttt{return a += b;} 是把 \texttt{a += b; return a;} 寫成
+一行，\texttt{+=} 回傳的就是 \texttt{a}。 有 getter，所以 \texttt{<<} 不
+需要 \texttt{friend}。 成員只有兩個 \texttt{double}，照零法則，複製和解構
+都不用寫。 要注意 \texttt{==} 直接比 \texttt{double}，經過計算的小數可能
+有誤差（例如 \texttt{0.1 + 0.2} 不等於 \texttt{0.3}），實際使用時常改成
+「差距小於某個很小的數」。
+\item 警告是 \texttt{implicitly-declared 'constexpr Text\& Text::operator=(const
+Text\&)' is deprecated [-Wdeprecated-copy]}，下一行說明原因是
+\texttt{Text} 有自己寫的複製建構子。 \texttt{Text b = a;} 用的是自己寫的
+複製建構子，\texttt{b} 有自己的陣列，所以 \texttt{b[0] = 'j'} 不影響
+\texttt{a}。 \texttt{c = a;} 用的卻是編譯器產生的複製指定，只複製了指標：
+\texttt{c.buf} 和 \texttt{a.buf} 指向同一塊，\texttt{c} 原本的
+\texttt{"hi"} 沒有人釋放。 \texttt{main} 結束時 \texttt{c}、\texttt{a} 先
+後 \texttt{delete[]} 同一塊，就是重複釋放。 用 ASan 跑，報告是
+\texttt{attempting double-free}，兩次釋放都在 \texttt{Text::\textasciitilde
+Text()}，配置的位置是 \texttt{Text::Text(char const*)}。
+
+(a) 補上複製指定，用複製後交換（記得 \texttt{\#include <utility>}）：
+\begin{code}{cpp}{練習 4 (a)：補上 operator=}
+Text &operator=(Text other) {
+    swap(len, other.len);
+    swap(buf, other.buf);
+    return *this;
+}
+\end{code}
+
+(b) 成員改成 \texttt{string str;}，建構子寫成
+\texttt{Text(const char *s) : str(s) \{\}}，\texttt{operator[]} 回傳 \texttt{str[i]}，
+\texttt{<<} 印 \texttt{t.str}；刪掉複製建構子、解構子，也不用
+\texttt{<cstring>}。
+
+兩種改法都輸出 \texttt{hello jello hello}，用 ASan 跑沒有錯誤。 (b) 少了
+十幾行，而且多了移動：(a) 寫了解構子和複製建構子，編譯器不產生移動建構
+子，要移動得自己再寫。
+\item
+(a) 零法則。 \texttt{string} 和 \texttt{vector} 會自己複製、移動、釋放。
+(b) 三法則（最好是五法則），或者改用 \texttt{vector<int>} 變成 (a) 的情況。
+這就是本章的 \texttt{IntArray}。
+(c) 零法則。 編譯器產生的版本會讓類別不能複製、可以移動，通常正好是要的。
+要能複製的話，改用 \texttt{vector}。
+(d) 要寫解構子，所以照三法則處理。 開啟的檔案沒有好的「複製」方法，通常把
+複製建構子和複製指定 \texttt{= delete}，需要的話再自己寫移動（移動時把來源
+的 \texttt{fp} 設成 \texttt{nullptr}，解構子裡檢查不是 \texttt{nullptr} 才
+\texttt{fclose}）。
+(e) 什麼都不用寫，編譯器產生的複製建構子會讓新物件綁著同一個
+\texttt{vector}，這通常就是要的。 但參考成員不能重新綁定，所以編譯器不會
+產生複製指定，\texttt{r1 = r2;} 編譯失敗。
+\end{enumerate}

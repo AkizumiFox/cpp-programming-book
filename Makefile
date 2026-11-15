@@ -92,7 +92,7 @@ $(CHAPTERS_OUTDIR)/04_Lifetime.pdf:
 $(CHAPTERS_OUTDIR)/05_Classes.pdf:
 	$(call build_chapter,05_Classes,Classes)
 $(CHAPTERS_OUTDIR)/06_OperatorOverloading.pdf:
-	$(call build_chapter,06_OperatorOverloading,Operator Overloading)
+	$(call build_chapter,06_OperatorOverloading,Operator Overloading and Copying)
 $(CHAPTERS_OUTDIR)/07_InheritanceAndPolymorphism.pdf:
 	$(call build_chapter,07_InheritanceAndPolymorphism,Inheritance and Polymorphism)
 $(CHAPTERS_OUTDIR)/08_TemplatesAndSTL.pdf:
