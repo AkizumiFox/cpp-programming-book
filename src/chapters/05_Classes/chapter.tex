@@ -519,9 +519,9 @@ double-free}。
 要讓複製正確，可以自己寫複製建構子和複製指定運算子，配置一塊新的陣列再把
 元素抄過去。 一個類別需要自己寫解構子時，通常也需要自己寫這兩個，這叫
 \textbf{三法則}（rule of three）；再加上第~4~章的移動（移動建構子和移動
-指定運算子）共五個，叫\textbf{五法則}（rule of five）。 本書不細談這些
-函式的寫法，建議的做法是成員不要用原始指標，改用 \texttt{vector}
-或 \texttt{unique\_ptr}。
+指定運算子）共五個，叫\textbf{五法則}（rule of five）。 這些函式怎麼寫，
+第~6~章再講。 這裡先用比較簡單的做法：成員不要用原始指標，改用
+\texttt{vector} 或 \texttt{unique\_ptr}。
 
 \begin{code}{cpp}{(copy\_fixed.cpp) 成員改用 vector（節錄）}
 class IntArray {
@@ -552,10 +552,8 @@ deleted function}），但可以移動。 編譯失敗比執行時重複釋放�
 
 \begin{itemize}
 \item \textbf{傳值傳進函式}：\texttt{void print(IntArray a)} 每次呼叫都會
-複製一個 \texttt{IntArray}。 用原始指標的版本，函式結束時複本的解構子就把
-陣列釋放了，呼叫端的物件從此懸置。 傳類別物件時照第~2~章的原則用
-\texttt{const} 參考，就不會複製（\texttt{const} 參考要搭配
-第~\ref{sec:this-const}~節的 \texttt{const} 成員函式）。
+複製一個 \texttt{IntArray}，用原始指標的版本會重複釋放（本章練習第~5~題）。
+傳類別物件時用 \texttt{const} 參考。
 \item \textbf{解構子用錯 \texttt{delete}}：建構子用 \texttt{new int[n]}，
 解構子就要用 \texttt{delete[]}。 寫成 \texttt{delete data;} 是第~4~章說
 的配錯對。
@@ -861,6 +859,44 @@ int main() {
 總共開過幾個帳戶（銷毀的也算）。 提供 \texttt{getId()}、
 \texttt{getOwner()} 和 \texttt{static} 的 \texttt{openedCount()}。 寫完之
 後試試 \texttt{a = b;}，會發生什麼事？
+\item 下面的程式編譯時沒有警告，執行時印出 \texttt{6} 之後就中止了。 用
+ASan 跑一次，說明原因，再用兩種方法改正：(a) 不動 \texttt{IntArray}，只改
+\texttt{sum}；(b) 不動 \texttt{sum}，把 \texttt{IntArray} 的成員改成
+\texttt{vector}。
+\begin{code}{cpp}{(pass\_by\_value.cpp) 練習：傳值造成重複釋放}
+#include <iostream>
+using namespace std;
+
+class IntArray {
+public:
+    IntArray(int n) : len(n), data(new int[n]()) {}
+    ~IntArray() { delete[] data; }
+    int size() const { return len; }
+    int get(int i) const { return data[i]; }
+    void set(int i, int x) { data[i] = x; }
+
+private:
+    int len;
+    int *data;
+};
+
+int sum(IntArray a) {
+    int s = 0;
+    for (int i = 0; i < a.size(); i++) {
+        s += a.get(i);
+    }
+    return s;
+}
+
+int main() {
+    IntArray v(3);
+    v.set(0, 1);
+    v.set(1, 2);
+    v.set(2, 3);
+    cout << sum(v) << '\n';
+    return 0;
+}
+\end{code}
 \end{drills}
 
 \addcontentsline{toc}{section}{練習解答}
@@ -982,5 +1018,35 @@ error: non-static const member 'const int Account::id', cannot use default assig
 自動產生的複製指定運算子要逐一指定成員，\texttt{const} 的 \texttt{id} 不
 能指定，所以編譯器不產生它。 這也符合需求：兩個帳戶的編號本來就不該變成
 一樣。 \texttt{Account c = a;} 這種複製建構還是編得過，\texttt{c} 會拿到跟
-\texttt{a} 一樣的編號；要連這個也禁止，得自己處理複製建構子，本書不細談。
+\texttt{a} 一樣的編號；要連這個也禁止，得自己處理複製建構子，第~6~章會講。
+\item ASan 的報告（節錄）：
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+6
+==1569380==ERROR: AddressSanitizer: attempting double-free on 0x502000000010 in thread T0:
+    #1 0x5840114997f7 in IntArray::~IntArray() pass_by_value.cpp:7
+    #2 0x58401149957c in main pass_by_value.cpp:32
+
+freed by thread T0 here:
+    #1 0x5840114997f7 in IntArray::~IntArray() pass_by_value.cpp:7
+    #2 0x584011499557 in main pass_by_value.cpp:30
+\end{code}
+同一塊記憶體被解構子釋放了兩次。 \texttt{sum(v)} 傳值，參數 \texttt{a} 是
+\texttt{v} 的複本，用自動產生的複製建構子建立，所以 \texttt{a.data} 和
+\texttt{v.data} 是同一個位址（第~\ref{sec:dtor}~節）。 第 $30$ 行的
+\texttt{sum(v)} 呼叫結束後 \texttt{a} 銷毀，第一次 \texttt{delete[]}；
+第 $32$ 行 \texttt{main} 結束時 \texttt{v} 銷毀，又 \texttt{delete[]} 同一
+塊。 \texttt{6} 印得出來，是因為 \texttt{a} 銷毀前陣列還在。
+
+(a) \texttt{sum} 改成 \texttt{int sum(const IntArray \&a)}，參數是
+\texttt{v} 的別名，不會複製，只有 \texttt{v} 的解構子釋放一次。
+\texttt{size} 和 \texttt{get} 本來就是 \texttt{const} 成員函式，所以透過
+\texttt{const} 參考可以呼叫。
+
+(b) 成員改成 \texttt{vector<int> data;}，建構子寫成
+\texttt{IntArray(int n) : data(n) \{\}}，\texttt{size()} 回傳
+\texttt{(int)data.size()}，拿掉 \texttt{len} 和解構子。 這時複製
+\texttt{IntArray} 會複製整個 \texttt{vector}，\texttt{a} 有自己的一份，
+兩個物件各自釋放自己的記憶體。 程式正確了，但每次呼叫 \texttt{sum} 還是
+複製三個元素；兩種改法可以一起用。
+兩種改法用 ASan 跑都只印出 \texttt{6}，沒有錯誤。
 \end{enumerate}
