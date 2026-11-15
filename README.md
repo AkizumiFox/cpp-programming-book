@@ -13,7 +13,8 @@
 - 第 5 章 PDF：[`output/chapters/05_Classes.pdf`](output/chapters/05_Classes.pdf)
 - 第 6 章 PDF：[`output/chapters/06_OperatorOverloading.pdf`](output/chapters/06_OperatorOverloading.pdf)
 - 第 7 章 PDF：[`output/chapters/07_InheritanceAndPolymorphism.pdf`](output/chapters/07_InheritanceAndPolymorphism.pdf)
-- 第 8 章 PDF（草稿）：[`output/chapters/08_TemplatesAndSTL.pdf`](output/chapters/08_TemplatesAndSTL.pdf)
+- 第 8 章 PDF：[`output/chapters/08_TemplatesAndSTL.pdf`](output/chapters/08_TemplatesAndSTL.pdf)
+- 第 9 章 PDF（草稿）：[`output/chapters/09_IteratorsAndAlgorithms.pdf`](output/chapters/09_IteratorsAndAlgorithms.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
@@ -28,7 +29,7 @@
 | 6 | 運算子多載與複製 | 完成 |
 | 7 | 繼承與多型 | 完成 |
 | 8 | 模板與 STL 容器 | 完成 |
-| 9 | 迭代器與演算法 | 未開始 |
+| 9 | 迭代器與演算法 | 草稿 |
 | 10 | 銜接 APCS 與資料結構 | 未開始 |
 
 ## 編譯
