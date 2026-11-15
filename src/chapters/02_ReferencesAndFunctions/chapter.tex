@@ -1,0 +1,731 @@
+\chapter{參考與函式}
+\label{ch:references-and-functions}
+
+第~1~章留了一個問題：\texttt{cin >> n} 沒有寫 \texttt{\&n}，為什麼
+改得到 \texttt{n}？ 答案是\textbf{參考}（reference）。 這一章先講參考
+是什麼、跟指標差在哪裡，再看它怎麼用在函式的參數和回傳值上。 後半章
+介紹 C++ 讓函式更好寫的三個功能：函式多載、預設引數和 \texttt{auto}。
+
+\section{參考是變數的別名}
+\label{sec:reference}
+
+\begin{crecap}[用指標交換兩個變數]
+C 的函式參數是傳值，函式裡改的是複本。 想讓函式改到呼叫者的變數，要
+傳位址進去，函式再透過指標解參考（dereference）去改：
+
+\begin{code}{c}{C 的 swap}
+#include <stdio.h>
+
+void swap(int *pa, int *pb) {
+    int t = *pa;
+    *pa = *pb;
+    *pb = t;
+}
+
+int main(void) {
+    int a = 3, b = 7;
+    swap(&a, &b);          // 傳位址
+    printf("%d %d\n", a, b);
+    return 0;
+}
+\end{code}
+
+輸出 \texttt{7 3}。 這個寫法有兩個麻煩：呼叫時每個引數都要記得加
+\texttt{\&}，函式裡每次用到都要寫 \texttt{*}；而且指標可能是
+\texttt{NULL}，嚴謹一點的函式還得先檢查。
+\end{crecap}
+
+C++ 的參考是一個已經存在的變數的\textbf{別名}（alias）：同一塊記憶體，
+多一個名字。 宣告時在變數名稱前面加 \texttt{\&}：
+
+\begin{example}[label=ex:ref-basics]{cpp}{(ref\_basics.cpp) 參考和原變數是同一個東西}
+#include <iostream>
+using namespace std;
+
+int main() {
+    int x = 10;
+    int &r = x;    // r 是 x 的另一個名字
+
+    r = 20;
+    cout << x << '\n';
+    x++;
+    cout << r << '\n';
+    cout << (&r == &x) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+20 \\
+21 \\
+1 \\
+}
+
+\texttt{int \&r = x;} 讀作「\texttt{r} 是一個 \texttt{int} 的參考，綁定
+（bind）到 \texttt{x}」。 之後對 \texttt{r} 做的任何事，就是對
+\texttt{x} 做：\texttt{r = 20} 改的是 \texttt{x}，\texttt{x++} 之後
+讀 \texttt{r} 也看得到。 最後一行比較兩者的位址，結果相同，它們就是
+同一個變數。
+
+注意 \texttt{\&} 在這裡的意思。 寫在\textbf{宣告}裡、型別後面時，
+\texttt{\&} 表示「參考」；寫在\textbf{運算式}裡、變數前面時，
+\texttt{\&x} 還是 C 的取位址。 \texttt{*} 也是同樣的情況：宣告裡表示
+指標，運算式裡表示解參考。
+
+\subsection{參考和指標的差別}
+
+參考在底層通常就是用位址實作的，但語言對它的限制比指標多：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & 指標 \texttt{int *p} & 參考 \texttt{int \&r} \\
+\midrule
+宣告時一定要初始化 & 否 & 是 \\
+可以改成指向別的變數 & 可以 & 不行，綁定後不能換 \\
+可以是空的 & 可以是 \texttt{nullptr} & 不行 \\
+取值的寫法 & \texttt{*p} & 直接寫 \texttt{r} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+第二列最容易誤會。 對參考做指定，是把值寫進它綁定的那個變數，不是改綁
+到別的變數：
+
+\begin{example}[label=ex:ref-vs-ptr]{cpp}{(ref\_vs\_ptr.cpp) 指標可以改指向，參考不能改綁}
+#include <iostream>
+using namespace std;
+
+int main() {
+    int a = 1, b = 2;
+
+    int *p = &a;
+    p = &b;        // 指標可以改指向 b
+    *p = 20;       // 改的是 b
+    cout << a << ' ' << b << '\n';
+
+    int &r = a;    // r 綁定 a，從此不會變
+    r = b;         // 把 b 的值指定給 a，不是改綁到 b
+    r = 10;        // 改的仍然是 a
+    cout << a << ' ' << b << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 20 \\
+10 20 \\
+}
+
+\texttt{r = b} 執行完，\texttt{a} 變成 $20$；接著 \texttt{r = 10}
+又把 \texttt{a} 改成 $10$，\texttt{b} 完全沒被動到。 C++ 根本沒有讓
+參考改綁的語法。
+
+這些限制換來的好處是：拿到一個參考，就可以確定它綁著一個真的變數，不
+必像指標那樣先檢查是不是空的。 一般的原則是，能用參考就用參考；需要
+「可能沒有」或「中途換目標」的時候才用指標。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{宣告參考卻沒有初始化}：\texttt{int \&r;} 編譯失敗，
+\texttt{g++} 會說 \texttt{'r' declared as reference but not
+initialized}。
+\item \textbf{綁定到常數}：\texttt{int \&r = 5;} 也編不過。 \texttt{5}
+不是一個變數，沒有一塊記憶體可以讓 \texttt{r} 當別名：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: cannot bind non-const lvalue reference of type 'int&' to an rvalue of type 'int'
+\end{code}
+lvalue 大致是「有名字、有位址、可以放在等號左邊」的東西，例如變數；
+rvalue 是 \texttt{5}、\texttt{a + b} 這種算完就丟的值。 一般的參考只能
+綁定 lvalue。 第~\ref{sec:const-ref}~節的 \texttt{const} 參考例外。
+\item \textbf{想用 \texttt{r = b} 改綁}：如範例~\ref{ex:ref-vs-ptr}，
+這行是指定，不是改綁。
+\end{itemize}
+
+\section{傳參考}
+\label{sec:pass-by-ref}
+
+參考最常見的用途是當函式參數。 參數宣告成參考時，呼叫的那一刻參數就
+綁定到傳進來的變數，函式裡改參數就是改呼叫者的變數。 這叫\textbf{傳參
+考}（pass by reference）。
+
+\begin{example}[label=ex:swap-ref]{cpp}{(swap\_ref.cpp) 用參考交換，以及用參考帶回兩個結果}
+#include <iostream>
+using namespace std;
+
+void swapInt(int &a, int &b) {
+    int t = a;
+    a = b;
+    b = t;
+}
+
+void divide(int a, int b, int &q, int &r) {
+    q = a / b;
+    r = a % b;
+}
+
+int main() {
+    int x = 3, y = 7;
+    swapInt(x, y);
+    cout << x << ' ' << y << '\n';
+
+    int q, r;
+    divide(17, 5, q, r);
+    cout << q << ' ' << r << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+7 3 \\
+3 2 \\
+}
+
+跟 C 的版本比，\texttt{swapInt} 裡沒有任何 \texttt{*}，呼叫時也不用
+\texttt{\&}。 函式取名 \texttt{swapInt} 是為了避開標準函式庫裡現成的
+\texttt{std::swap}（在 \texttt{<utility>} 裡），以後交換兩個變數直接用
+它就好。
+
+\texttt{divide} 示範另一種常見用法：C 的函式只能回傳一個值，要帶回兩
+個結果時，把用來裝結果的變數用參考傳進去。 \texttt{cin >> n} 能改到
+\texttt{n}，也是因為它收的是參考。
+
+傳參考有一個缺點：只看呼叫端的 \texttt{swapInt(x, y)}，看不出
+\texttt{x}、\texttt{y} 會被改。 所以函式名稱最好清楚表達它會改參數，
+不打算改的參數就不要宣告成一般的參考。
+
+\subsection{\texttt{const} 參考：不改，也不複製}
+\label{sec:const-ref}
+
+\begin{crecap}[傳結構的指標]
+傳值會複製整個引數。 結構很大時，每次呼叫都複製一份很浪費，C 的慣例
+是改傳指標，再加 \texttt{const} 表示函式不會修改它，例如
+\texttt{double average(const struct Scores *s);}。 函式裡用 \texttt{s->n} 存取成員，呼叫時寫 \texttt{average(\&s)}。
+\end{crecap}
+
+C++ 的對應寫法是 \texttt{const} 參考，型別寫成 \texttt{const Scores \&}。
+傳進去不會複製，函式裡也不能透過它修改。 順帶一提，C++ 裡用結構當型別
+時不必再寫 \texttt{struct} 這個字，直接寫 \texttt{Scores} 就好。
+
+\begin{example}[label=ex:const-ref]{cpp}{(const\_ref.cpp) 唯讀的參數用 const 參考，要修改的用參考}
+#include <iostream>
+using namespace std;
+
+struct Scores {
+    int n;
+    int v[1000];
+};
+
+double average(const Scores &s) {
+    long long sum = 0;
+    for (int i = 0; i < s.n; i++) {
+        sum += s.v[i];
+    }
+    return (double)sum / s.n;
+}
+
+void addBonus(Scores &s, int bonus) {
+    for (int i = 0; i < s.n; i++) {
+        s.v[i] += bonus;
+    }
+}
+
+int main() {
+    Scores s;
+    s.n = 4;
+    s.v[0] = 70; s.v[1] = 85; s.v[2] = 62; s.v[3] = 91;
+
+    cout << sizeof(Scores) << '\n';
+    cout << average(s) << '\n';
+    addBonus(s, 5);
+    cout << average(s) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+4004 \\
+77 \\
+82 \\
+}
+
+\texttt{Scores} 有 $4004$ 個位元組。 如果 \texttt{average} 寫成傳值
+\texttt{average(Scores s)}，每呼叫一次就複製這 $4004$ 個位元組；寫成
+\texttt{const Scores \&s}，只傳一個別名，不複製。 存取成員用
+\texttt{.}，跟一般的結構變數一樣，不用 \texttt{->}。
+
+參數要怎麼宣告，可以這樣決定：
+
+\begin{itemize}
+\item 函式要修改引數：用參考，例如 \texttt{Scores \&s}。
+\item 不修改，而且型別很大（結構、第~3~章的 \texttt{string}、
+\texttt{vector}）：用 \texttt{const} 參考。
+\item 不修改，而且是 \texttt{int}、\texttt{double}、\texttt{char} 這類
+小型別：直接傳值。 複製一個 \texttt{int} 的成本跟傳一個參考差不多，
+傳值反而簡單。
+\end{itemize}
+
+\texttt{const} 參考還有一個特性：它可以綁定 rvalue。 所以
+\texttt{const int \&r = 5;} 合法，宣告成 \texttt{const} 參考的參數也
+能直接收 \texttt{5}、\texttt{a + b} 這種值。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{把常數傳給一般參考}：\texttt{swapInt(x, 3)} 編譯失敗，
+錯誤訊息跟 \texttt{int \&r = 5;} 一樣是 \texttt{cannot bind non-const
+lvalue reference}。 函式要改這個參數，傳常數進去本來就沒有意義。
+\item \textbf{在 \texttt{const} 參考上修改}：在 \texttt{average} 裡寫
+\texttt{s.n = 0;}，\texttt{g++} 會報 \texttt{assignment of member
+'Scores::n' in read-only object}。 這正是 \texttt{const} 的用處：不小心改到不該改的東西時，在編譯階段就
+發現。
+\item \textbf{漏寫 \texttt{\&}}：寫成 \texttt{void addBonus(Scores s,
+int bonus)} 照樣編得過，但改的是複本，呼叫完 \texttt{main} 裡的分數
+沒有變。 函式該改的東西沒改到，先檢查參數有沒有 \texttt{\&}。
+\end{itemize}
+
+\section{回傳參考}
+\label{sec:return-ref}
+
+函式的回傳型別也可以是參考。 這時函式回傳的不是一個值，而是某個變數
+本身，所以函式呼叫可以放在等號左邊：
+
+\begin{example}[label=ex:return-ref]{cpp}{(return\_ref.cpp) 回傳較大的那一個變數}
+#include <iostream>
+using namespace std;
+
+int &larger(int &a, int &b) {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+int main() {
+    int x = 3, y = 8;
+    larger(x, y) = 0;      // y 比較大，y 變成 0
+    cout << x << ' ' << y << '\n';
+    larger(x, y) += 5;     // 現在 x 比較大，x 加 5
+    cout << x << ' ' << y << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+3 0 \\
+8 0 \\
+}
+
+\texttt{larger(x, y)} 回傳的是 \texttt{y} 這個變數，所以
+\texttt{larger(x, y) = 0} 把 \texttt{y} 設成 $0$。 第二次呼叫時
+\texttt{x} 比較大，\texttt{+= 5} 就加在 \texttt{x} 上。
+
+你其實已經用過回傳參考的函式：\texttt{cin >> a} 執行完回傳的是
+\texttt{cin} 本身的參考，所以後面可以接著寫 \texttt{>> b}。
+\texttt{cout <<} 能串下去也是同樣的道理。 第~6~章自己寫運算子時會再
+看到這種寫法。
+
+\subsection{常見錯誤}
+
+回傳參考時，被回傳的那個變數在函式結束後必須還存在。 下面的函式回傳
+區域變數的參考：
+
+\begin{code}{cpp}{回傳區域變數的參考（錯誤示範）}
+int &bad() {
+    int x = 42;
+    return x;
+}
+\end{code}
+
+\texttt{x} 在 \texttt{bad} 結束時就消失了，呼叫者拿到的是一個綁著已經
+不存在的變數的參考，稱為\textbf{懸置參考}（dangling reference）。 使用
+它是未定義行為。 這段程式編得過，\texttt{g++ -Wall} 只給警告：
+
+\begin{code}{text}{編譯器的警告}
+warning: reference to local variable 'x' returned [-Wreturn-local-addr]
+\end{code}
+
+看到這個警告就要改，不能放著。 簡單的判斷方式：回傳的是參數本身（像
+\texttt{larger} 的 \texttt{a}、\texttt{b} 都是參考參數）或全域變數，
+就沒問題；回傳函式裡宣告的區域變數，就要改成傳值回傳。 變數什麼時候
+出生、什麼時候消失，第~4~章會完整談。
+
+\section{函式多載}
+\label{sec:overloading}
+
+\begin{crecap}[同一件事，不同名字]
+C 不允許兩個函式同名。 所以 \texttt{<stdlib.h>} 裡取 \texttt{int}
+絕對值的是 \texttt{abs}、取 \texttt{long} 的是 \texttt{labs}，
+\texttt{<math.h>} 裡取 \texttt{double} 的是 \texttt{fabs}。 做的是
+同一件事，只因為型別不同，就得記三個名字。
+\end{crecap}
+
+C++ 允許同一個名字有好幾個版本，只要\textbf{參數列}不同（參數的個數或
+型別不同）。 這叫\textbf{函式多載}（function overloading）。 呼叫時，
+編譯器看引數的型別挑出最合適的那一個。 C++ 的 \texttt{<cmath>} 就把
+\texttt{std::abs} 多載成好幾個版本，\texttt{int}、\texttt{double} 都用
+同一個名字。
+
+\begin{example}[label=ex:overload]{cpp}{(overload.cpp) 同名函式，依引數型別選版本}
+#include <iostream>
+using namespace std;
+
+void show(int x) {
+    cout << "int: " << x << '\n';
+}
+
+void show(double x) {
+    cout << "double: " << x << '\n';
+}
+
+void show(const char *s) {
+    cout << "字串: " << s << '\n';
+}
+
+int main() {
+    show(3);
+    show(2.5);
+    show("hi");
+    show('A');     // char 提升成 int
+    show(1.5f);    // float 提升成 double
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+int: 3 \\
+double: 2.5 \\
+字串: hi \\
+int: 65 \\
+double: 1.5 \\
+}
+
+前三個呼叫的引數型別跟某個版本完全一樣，直接選它。 後兩個沒有完全相
+同的版本，編譯器就要比較每個版本需要什麼轉換。 規則的細節很多，掌握
+大方向就夠了，由好到差大致是：
+
+\begin{enumerate}
+\item \textbf{完全相符}：型別一樣。
+\item \textbf{提升}（promotion）：小的整數型別（\texttt{char}、
+\texttt{short}、\texttt{bool}）變成 \texttt{int}，或 \texttt{float}
+變成 \texttt{double}。
+\item \textbf{一般轉換}：其他算術型別之間的轉換，例如 \texttt{int} 轉
+\texttt{double}、\texttt{double} 轉 \texttt{int}、\texttt{long} 轉
+\texttt{int}。
+\end{enumerate}
+
+\texttt{show('A')} 裡 \texttt{char} 提升成 \texttt{int} 比轉成
+\texttt{double} 好，所以印出 \texttt{int: 65}。 \texttt{show(1.5f)}
+同理選了 \texttt{double} 版本。 \texttt{cout <<} 能自動依型別印出不同
+格式，靠的也是多載。
+
+\subsection{歧義}
+
+如果有兩個版本一樣好，編譯器不會替你挑，直接報錯。 常見的例子是兩個
+引數各自偏向不同的版本：
+
+\begin{code}{cpp}{呼叫有歧義（錯誤示範）}
+int maxOf(int a, int b) { return a > b ? a : b; }
+double maxOf(double a, double b) { return a > b ? a : b; }
+
+maxOf(3, 2.5);   // 編譯錯誤
+\end{code}
+
+\begin{code}{text}{編譯器的錯誤訊息}
+error: call of overloaded 'maxOf(int, double)' is ambiguous
+\end{code}
+
+選 \texttt{int} 版本，第二個引數要轉換；選 \texttt{double} 版本，第一
+個引數要轉換。 兩邊各有一個轉換，分不出高下。 解決方法是讓引數型別一
+致，例如寫成 \texttt{maxOf(3.0, 2.5)}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{只有回傳型別不同}：\texttt{int half(int x)} 和
+\texttt{double half(int x)} 不能同時存在，因為呼叫 \texttt{half(5)}
+時編譯器無從分辨。 \texttt{g++} 會在第二個宣告報
+\texttt{ambiguating new declaration of 'double half(int)'}。 多載只看參數列，不看回傳型別。
+\item \textbf{引數型別哪一邊都不完全相符}：只有 \texttt{show(int)} 和
+\texttt{show(double)} 兩個版本時，\texttt{show(5L)} 也有歧義：
+\texttt{long} 轉 \texttt{int} 和 \texttt{long} 轉 \texttt{double} 都
+是一般轉換。 傳字面常數時注意它的型別，或乾脆自己轉型。
+\end{itemize}
+
+\section{預設引數}
+\label{sec:default-args}
+
+有些參數大部分時候都傳同一個值。 C++ 可以在宣告參數時給它一個
+\textbf{預設引數}（default argument），呼叫時沒傳，就用預設值。
+
+\begin{example}[label=ex:default-args]{cpp}{(default\_args.cpp) 印一條橫線，字元與縮排可省略}
+#include <iostream>
+using namespace std;
+
+void bar(int len, char ch = '#', int indent = 0);
+
+int main() {
+    bar(5);
+    bar(3, '*');
+    bar(4, '-', 2);
+    return 0;
+}
+
+void bar(int len, char ch, int indent) {
+    for (int i = 0; i < indent; i++) {
+        cout << ' ';
+    }
+    for (int i = 0; i < len; i++) {
+        cout << ch;
+    }
+    cout << '\n';
+}
+\end{example}
+
+\iosample{}{
+\#\#\#\#\# \\
+*** \\
+\ \ ---- \\
+}
+
+\texttt{bar(5)} 等於 \texttt{bar(5, '\#', 0)}，\texttt{bar(3, '*')}
+等於 \texttt{bar(3, '*', 0)}。 規則有兩條：
+
+\begin{itemize}
+\item 預設引數只能從參數列的\textbf{最右邊}開始連續給。 呼叫時引數也是
+從左邊依序對應，不能跳過中間的：想指定 \texttt{indent} 就一定要寫出
+\texttt{ch}。
+\item 預設值只寫一次。 有函式原型時寫在原型上，定義那裡不要再寫。 呼叫
+端看得到原型，編譯器才知道可以省略哪些引數。
+\end{itemize}
+
+預設引數和多載有時能做同一件事：上面的 \texttt{bar} 也可以寫成三個多
+載版本。 差別在於預設引數只寫一份函式本體，適合「同一件事，只是有些
+參數常用固定值」的情況；各版本的做法真的不同時，才用多載。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{原型和定義都寫預設值}：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: default argument given for parameter 2 of 'void bar(int, char, int)' [-fpermissive]
+\end{code}
+把定義那裡的 \texttt{= '\#'} 拿掉。
+\item \textbf{預設引數後面接了沒有預設值的參數}：例如
+\texttt{void bar(int len, char ch = '\#', int indent)}，\texttt{g++}
+會報 \texttt{default argument missing for parameter 3}。
+\item \textbf{和多載撞在一起}：同時有 \texttt{void f(int a, int b = 0)}
+和 \texttt{void f(int a)}，呼叫 \texttt{f(1)} 時兩個都能用，編譯器報
+\texttt{call of overloaded 'f(int)' is ambiguous}。 兩者選一種寫法就好。
+\end{itemize}
+
+\section{\texttt{auto}：讓編譯器推斷型別}
+\label{sec:auto}
+
+宣告變數時把型別寫成 \texttt{auto}，編譯器會依照初始值推斷型別：
+\texttt{auto n = 10;} 的 \texttt{n} 是 \texttt{int}，\texttt{auto x
+= 2.5;} 的 \texttt{x} 是 \texttt{double}。 推斷在編譯時就完成，
+\texttt{n} 從此就是 \texttt{int}，不會因為之後指定別的值而變型別。
+
+\begin{example}[label=ex:auto]{cpp}{(auto\_demo.cpp) auto 推斷出來的型別}
+#include <iostream>
+using namespace std;
+
+int main() {
+    auto half = 7 / 2;      // int
+    auto ratio = 7 / 2.0;   // double
+    cout << half << ' ' << ratio << '\n';
+
+    int x = 3;
+    int &r = x;
+    auto a = r;             // int：複製一份
+    auto &b = r;            // int&：綁定 x
+    a = 10;
+    cout << a << ' ' << x << '\n';
+    b = 20;
+    cout << x << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+3 3.5 \\
+10 3 \\
+20 \\
+}
+
+這個範例說明兩件事：
+
+\begin{itemize}
+\item \texttt{auto} 推斷的是\textbf{初始值的型別}，不是你心裡想的型別。
+\texttt{7 / 2} 是整數除法，所以 \texttt{half} 是 \texttt{int}，值是
+$3$。
+\item \texttt{auto} 會丟掉參考。 \texttt{r} 是 \texttt{int \&}，
+但 \texttt{auto a = r} 推斷成 \texttt{int}，\texttt{a} 是一份複本，改
+它不會影響 \texttt{x}。 函式回傳參考時也一樣：\texttt{auto m =
+larger(x, y);} 拿到的是複本。 要參考就寫 \texttt{auto \&}；要唯讀又不複製，寫
+\texttt{const auto \&}。
+\end{itemize}
+
+\subsection{什麼時候用}
+
+\texttt{auto} 真正省事的地方，是型別名稱很長、寫出來也沒有多少資訊的
+時候。 第~8、9~章的容器和迭代器，型別名稱常常長到一行寫不下，那時
+\texttt{auto} 會很好用。 像 \texttt{int}、\texttt{double} 這種短型別，
+寫出來讀者一眼就知道是什麼，寫 \texttt{auto} 反而要讓人回頭看初始值
+才知道型別。 本書的原則是：型別很短或很重要時照寫，很長而且從右邊看
+得出來時才用 \texttt{auto}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有初始值}：\texttt{auto x;} 沒東西可以推斷，編譯失敗，
+\texttt{g++} 會報 \texttt{declaration of 'auto x' has no initializer}。
+\item \textbf{初始值的型別不是你要的}：\texttt{auto sum = 0;} 之後一直
+加小數，\texttt{sum} 是 \texttt{int}，小數部分每次都被截掉，而且
+\texttt{-Wall -Wextra} 不會警告。 要 \texttt{double} 就寫
+\texttt{0.0}，或乾脆寫出 \texttt{double}。
+\item \textbf{以為 \texttt{auto s = "hi";} 是字串型別}：它是
+\texttt{const char *}，就是 C 的字串指標。 C++ 的字串型別
+\texttt{string} 第~3~章介紹。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch2-exercises}
+
+\begin{drills}[label=drills:ch2]
+\item 預測下面程式的輸出：
+\begin{code}{cpp}{練習：預測輸出}
+#include <iostream>
+using namespace std;
+
+void f(int a, int &b) {
+    a++;
+    b++;
+}
+
+int main() {
+    int x = 1, y = 1;
+    f(x, y);
+    int &r = x;
+    r = y;
+    r++;
+    cout << x << ' ' << y << ' ' << r << '\n';
+    return 0;
+}
+\end{code}
+\item 寫一個函式 \texttt{void sort3(int \&a, int \&b, int \&c)}，把三個
+變數由小到大排好。 再寫 \texttt{main} 讀入三個整數，排序後輸出。 輸入
+\texttt{9 2 5} 時應輸出 \texttt{2 5 9}。
+\item 下面的程式想把較大的變數設成 $0$，編譯時 \texttt{g++ -Wall} 卻
+給了警告，執行起來也有問題。 問題在哪裡？ 怎麼改？
+\begin{code}{cpp}{練習：找錯}
+#include <iostream>
+using namespace std;
+
+int &larger(int a, int b) {
+    if (a > b) {
+        return a;
+    }
+    return b;
+}
+
+int main() {
+    int x = 3, y = 8;
+    larger(x, y) = 0;
+    cout << x << ' ' << y << '\n';
+    return 0;
+}
+\end{code}
+\item 預測下面程式的輸出。 如果在 \texttt{main} 裡再加一行
+\texttt{p(5L);}，會發生什麼事？
+\begin{code}{cpp}{練習：多載與預設引數}
+#include <iostream>
+using namespace std;
+
+void p(int x) {
+    cout << "A " << x << '\n';
+}
+
+void p(double x) {
+    cout << "B " << x << '\n';
+}
+
+void q(int a, int b = 2, int c = 3) {
+    cout << a + b + c << '\n';
+}
+
+int main() {
+    p('0');
+    p(2.5f);
+    q(1);
+    q(1, 0);
+    return 0;
+}
+\end{code}
+\item 寫出下面每個變數的型別：
+\begin{code}{cpp}{練習：auto 推斷出什麼}
+auto a = 5 / 2;
+auto b = 5 / 2.0;
+auto c = 'x';
+auto d = "abc";
+int k = 1;
+int &rk = k;
+auto e = rk;
+auto &f = rk;
+\end{code}
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出 \texttt{3 2 3}。 \texttt{a} 是傳值，\texttt{a++} 不影響
+\texttt{x}；\texttt{b} 是參考，\texttt{y} 變成 $2$。 \texttt{r = y}
+把 $2$ 寫進 \texttt{x}，\texttt{r++} 再把 \texttt{x} 加成 $3$。
+\texttt{r} 就是 \texttt{x}，所以也印 $3$。
+\item 一種寫法：
+\begin{code}{cpp}{練習 2 參考解答}
+#include <iostream>
+#include <utility>
+using namespace std;
+
+void sort3(int &a, int &b, int &c) {
+    if (a > b) swap(a, b);
+    if (b > c) swap(b, c);
+    if (a > b) swap(a, b);
+}
+
+int main() {
+    int a, b, c;
+    cin >> a >> b >> c;
+    sort3(a, b, c);
+    cout << a << ' ' << b << ' ' << c << '\n';
+    return 0;
+}
+\end{code}
+前兩次比較把最大的換到 \texttt{c}，第三次再排好 \texttt{a}、
+\texttt{b}。 \texttt{swap} 是標準函式庫的 \texttt{std::swap}，在
+\texttt{<utility>} 裡，也可以換成自己寫的 \texttt{swapInt}。
+\item 參數 \texttt{a}、\texttt{b} 是傳值，是 \texttt{larger} 自己的區
+域變數，函式結束就消失了。 回傳它們的參考是懸置參考，\texttt{g++} 的警
+告是 \texttt{reference to local variable 'a' returned}。 就算程式沒有
+當掉，改的也不是 \texttt{main} 的 \texttt{x}、\texttt{y}；在本書測試
+的環境下，這支程式執行時直接當掉（Segmentation fault）。 改法是把參數
+改成 \texttt{int \&a, int \&b}，回傳的就是 \texttt{main} 裡的變數，輸
+出 \texttt{3 0}。
+\item 輸出四行：\texttt{A 48}、\texttt{B 2.5}、\texttt{6}、
+\texttt{4}。 \texttt{'0'} 是 \texttt{char}，提升成
+\texttt{int}，值是字元 \texttt{0} 的編碼 $48$；\texttt{2.5f} 是
+\texttt{float}，提升成 \texttt{double}。 \texttt{q(1)} 是
+$1 + 2 + 3$，\texttt{q(1, 0)} 是 $1 + 0 + 3$。 加上 \texttt{p(5L)} 會
+編譯失敗：\texttt{long} 轉 \texttt{int} 和轉 \texttt{double} 都是一般
+轉換，編譯器報 \texttt{call of overloaded 'p(long int)' is
+ambiguous}。
+\item \texttt{a} 是 \texttt{int}（值 $2$），\texttt{b} 是
+\texttt{double}，\texttt{c} 是 \texttt{char}，\texttt{d} 是
+\texttt{const char *}，\texttt{e} 是 \texttt{int}（\texttt{auto} 丟掉
+參考，\texttt{e} 是 \texttt{k} 的複本），\texttt{f} 是
+\texttt{int \&}，綁定 \texttt{k}。
+\end{enumerate}
