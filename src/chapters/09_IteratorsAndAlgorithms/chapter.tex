@@ -146,15 +146,22 @@ $3$ 個元素。
 一樣，這叫\textbf{迭代器失效}（iterator invalidation）。 下面的程式邊走
 訪邊 \texttt{push\_back}：
 
-\begin{code}{cpp}{(iter\_dangling.cpp) 走訪時 push\_back（錯誤示範，main 的內容）}
-vector<int> v = {1, 2, 3};
-for (auto it = v.begin(); it != v.end(); ++it) {
-    if (*it % 2 == 1) {
-        v.push_back(*it * 10);   // 走訪時加元素
+\begin{example}[label=ex:iter-dangling]{cpp}{(iter\_dangling.cpp) 走訪時 push\_back（錯誤示範）}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {1, 2, 3};
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        if (*it % 2 == 1) {
+            v.push_back(*it * 10);   // 走訪時加元素
+        }
     }
+    cout << v.size() << '\n';
+    return 0;
 }
-cout << v.size() << '\n';
-\end{code}
+\end{example}
 
 \begin{code}{text}{用 ASan 編譯後執行（節錄）}
 ==3486867==ERROR: AddressSanitizer: heap-use-after-free on address 0x502000000014
@@ -167,14 +174,15 @@ freed by thread T0 here:
 \end{code}
 
 第一輪 \texttt{*it} 是 $1$，\texttt{push\_back(10)} 超過容量，換了記憶
-體；\texttt{it} 還指著舊的那塊，第二輪讀 \texttt{*it}（報告裡的第 $8$ 行）時就讀到
+體；\texttt{it} 還指著舊的那塊，第二輪在第 $8$ 行讀 \texttt{*it} 時就讀到
 已經釋放的記憶體。 不開 ASan 時，在本書測試的環境下程式照樣跑完，印出
 \texttt{11}，看不出哪裡出了錯；換一個環境，結果可能不同，也可能當掉。 修法跟第~3~章一樣：改用下
 標迴圈，或者把要加的元素先放進另一個 \texttt{vector}。
 
 刪除也會讓迭代器失效：\texttt{v.erase(it)} 之後，\texttt{it} 和它後面的
 迭代器都不能再用。 要邊走訪邊刪除，用 \texttt{erase} 的回傳值，它指向被
-刪掉的元素的下一個：
+刪掉的元素的下一個（第~\ref{sec:algorithms}~節的 \texttt{remove\_if} 是
+更快的寫法）：
 
 \begin{code}{cpp}{邊走訪邊刪除偶數}
 vector<int> v = {4, 1, 6, 6, 3, 8};
@@ -409,8 +417,23 @@ $100$，\texttt{byValue} 裡的仍然是 $10$，所以 \texttt{byValue(50)} 是�
 
 選法跟第~2~章選參數一樣：小型別只讀就傳值，要修改或型別很大（例如一個
 \texttt{vector}）就傳參考。 好幾個變數用逗號隔開：\texttt{[target,
-\&cnt]}。 簡寫 \texttt{[=]}、\texttt{[\&]} 表示用到的全部傳值、全部傳
-參考，但看不出捕獲了什麼，本書不用。
+\&cnt]}。
+
+另外有兩種簡寫：\texttt{[=]} 把本體裡用到的區域變數全部傳值捕獲，
+\texttt{[\&]} 全部傳參考捕獲。
+
+\begin{code}{cpp}{捕獲的簡寫}
+int lo = 3, hi = 7, cnt = 0;
+// lo、hi 傳值
+auto inRange = [=](int x) { return lo <= x && x <= hi; };
+// lo、hi、cnt 都傳參考
+auto tally = [&](int x) { if (lo <= x && x <= hi) cnt++; };
+\end{code}
+
+寫起來省事，但從方括號看不出 lambda 用了哪些變數、哪些是參考。 本節常見
+錯誤裡的 \texttt{makeAbove} 如果寫成 \texttt{[\&]}，方括號裡連
+\texttt{limit} 都看不到，懸置參考就更難發現。 所以本書把要捕獲的變數一個
+一個寫出來，讀的人一眼就知道哪些值會跟著 lambda 走、哪些會被改到。
 
 範例最後的 \texttt{sort} 依「離 \texttt{target} 多近」排序。
 \texttt{sort} 只傳兩個元素給比較函式，\texttt{target} 沒有地方放；一般函
@@ -553,6 +576,78 @@ v.erase(unique(v.begin(), v.end()), v.end());   // 刪掉後面那段
 \texttt{erase} 收兩個迭代器時，刪掉這個半開區間裡的元素。 做完之後
 \texttt{v} 排好序又不重複，可以直接用下一節的二分搜尋。
 
+\subsection{\texttt{remove\_if} 與反向迭代器}
+
+刪掉符合條件的元素，也是同樣的兩步：\texttt{remove\_if(first, last, pred)}
+把\textbf{不}符合 \texttt{pred} 的元素依序往前搬，回傳新的結尾，再用
+\texttt{erase} 刪掉後面那段。 只想刪掉等於某個值的元素，用
+\texttt{remove(first, last, x)}。 第~\ref{sec:iterators}~節邊走訪邊
+\texttt{erase} 的迴圈，每刪一個都要把後面的元素往前搬，最壞是 $O(n^2)$；
+\texttt{remove\_if} 加 \texttt{erase} 只走一遍，是 $O(n)$。
+
+\texttt{rbegin()}、\texttt{rend()} 回傳\textbf{反向迭代器}：
+\texttt{rbegin()} 指著最後一個元素，\texttt{++} 往前走，\texttt{rend()}
+是第一個元素的前一格。 把它們交給演算法，演算法就從後面往前做：
+
+\begin{example}[label=ex:remove-rev]{cpp}{(remove\_rev.cpp) remove\_if 加 erase，反向迭代器}
+#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <vector>
+using namespace std;
+
+void print(const vector<int> &v) {
+    for (int x : v) {
+        cout << x << ' ';
+    }
+    cout << '\n';
+}
+
+int main() {
+    vector<int> v = {4, 1, 6, 6, 3, 8, 5, 6};
+    auto big = [](int x) { return x > 5; };
+    v.erase(remove_if(v.begin(), v.end(), big), v.end());
+    print(v);
+
+    vector<int> w = {3, 1, 4, 1, 5, 9, 2, 6};
+    for (auto it = w.rbegin(); it != w.rend(); ++it) {
+        cout << *it << ' ';
+    }
+    cout << '\n';
+
+    auto last1 = find(w.rbegin(), w.rend(), 1);    // 從後面找
+    cout << "最後一個 1 在下標 " << w.rend() - last1 - 1 << '\n';
+
+    sort(w.rbegin(), w.rend());                     // 由大到小
+    print(w);
+
+    vector<int> id(5);
+    iota(id.begin(), id.end(), 0);                  // 0 1 2 3 4
+    print(id);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+4 1 3 5 \\
+6 2 9 5 1 4 1 3 \\
+最後一個 1 在下標 3 \\
+9 6 5 4 3 2 1 1 \\
+0 1 2 3 4 \\
+}
+
+\begin{itemize}
+\item 刪掉大於 $5$ 的元素，留下的 \texttt{4 1 3 5} 保持原來的先後。
+\item 對反向迭代器用 \texttt{find}，找到的是\textbf{最後}一個 $1$。 反向
+迭代器 \texttt{r} 指著下標 $i$ 的元素時，\texttt{v.rend() - r} 是 $i + 1$，
+所以下標是 \texttt{w.rend() - last1 - 1}。
+\item \texttt{sort(w.rbegin(), w.rend())} 從後面往前排成由小到大，從前面
+看就是由大到小，效果跟傳 \texttt{greater<int>()} 一樣。
+\item \texttt{iota}（在 \texttt{<numeric>} 裡）從 \texttt{0} 開始依序填
+入 $0, 1, 2, \dots$，第~\ref{sec:permutation}~節替 \texttt{job} 填初值的迴圈
+也可以這樣寫。
+\end{itemize}
+
 \subsection{常見錯誤}
 
 \begin{itemize}
@@ -566,6 +661,10 @@ cout << newEnd - v.begin() << ' ' << v.size() << '\n';   // 4 7
 元素的值沒有規定，在本書測試的環境下整個 \texttt{v} 印出來是
 \texttt{1 2 3 4 3 3 4}。 之後如果拿 \texttt{v.size()} 或範圍 \texttt{for}
 去用，就會多出這幾個舊值。
+\item \textbf{\texttt{remove\_if} 沒有接 \texttt{erase}}：跟
+\texttt{unique} 一樣，大小不變。 上面的 \texttt{v} 只呼叫
+\texttt{remove\_if}，\texttt{v.size()} 還是 $8$，在本書測試的環境下內容是
+\texttt{4 1 3 5 3 8 5 6}，後面四個是沒有規定的舊值。 C++17 不會警告。
 \item \textbf{\texttt{unique} 之前沒有排序}：\texttt{\{3, 1, 3, 1\}} 沒有
 相鄰的重複，\texttt{unique} 什麼都不做，結果還是 \texttt{3 1 3 1}。
 \item \textbf{\texttt{accumulate} 的初始值型別}：回傳值和加總過程都用
@@ -606,7 +705,9 @@ $O(\log n)$。
 \begin{example}[label=ex:bounds]{cpp}{(bounds.cpp) binary\_search、lower\_bound、upper\_bound}
 #include <algorithm>
 #include <iostream>
+#include <map>
 #include <set>
+#include <string>
 #include <vector>
 using namespace std;
 
@@ -629,6 +730,14 @@ int main() {
     set<int> s = {10, 20, 30};
     cout << *s.lower_bound(15) << ' ' << *s.lower_bound(20) << ' '
          << *s.upper_bound(20) << '\n';
+
+    map<int, string> grade = {
+        {0, "F"}, {60, "D"}, {70, "C"}, {80, "B"}, {90, "A"}};
+    for (int score : {85, 60, 59}) {
+        auto it = grade.upper_bound(score);   // 第一個門檻 > score
+        --it;                                 // 往回一格
+        cout << score << ' ' << it->second << '\n';
+    }
     return 0;
 }
 \end{example}
@@ -639,6 +748,9 @@ int main() {
 4 4 \\
 沒有 >= 9 的元素 \\
 20 20 30 \\
+85 B \\
+60 D \\
+59 F \\
 }
 
 \begin{itemize}
@@ -654,8 +766,11 @@ int main() {
 \item \texttt{set} 和 \texttt{map} 有同名的成員函式 \texttt{s.lower\_bound(x)}、
 \texttt{s.upper\_bound(x)}，意思相同，也是 $O(\log n)$；\texttt{map} 的
 版本以鍵比較。 第~8~章說「要找比 $x$ 大的第一個就用 \texttt{set}」，指的
-就是這兩個函式。 要「最後一個 $\le x$」，就先找第一個 $> x$ 再
-\texttt{--it}，前提是它不是 \texttt{begin()}。
+就是這兩個函式。
+\item 成績等第要的是「最後一個 $\le x$ 的門檻」，沒有現成的函式，寫法是
+先用 \texttt{upper\_bound} 找第一個 $> x$，再 \texttt{--it} 往回一格。
+往回之前要確定 \texttt{it} 不是 \texttt{begin()}；這裡 \texttt{grade}
+有門檻 $0$，分數又不會是負的，所以不會發生。
 \end{itemize}
 
 \texttt{vector} 和 \texttt{set} 怎麼選：資料讀進來之後就不再變動，排序一次再
@@ -873,9 +988,9 @@ $O(n \log n)$ 又沒有錯；二分搜尋的邊界最容易差一，\texttt{lowe
 \item \textbf{一次走訪要做好幾件事時，寫迴圈。} 同時要算總和、最大值、
 偶數個數，呼叫三個演算法就走了三遍，也不比一個迴圈好讀。 lambda 要寫十幾
 行時，也直接寫迴圈。
-\item \textbf{邊走訪邊增刪元素時，寫迴圈}，並且照第~\ref{sec:iterators}~節
-處理失效：刪除用 \texttt{it = v.erase(it)}，增加用下標或另一個
-\texttt{vector}。
+\item \textbf{邊走訪邊增加元素時，寫迴圈}，並且照第~\ref{sec:iterators}~節
+處理失效：用下標，或先放進另一個 \texttt{vector}。 只是刪除的話，用
+\texttt{remove\_if} 加 \texttt{erase}。
 \end{itemize}
 
 標準函式庫的演算法通常跟自己寫的迴圈一樣快，所以選擇的標準是哪一種比較好
@@ -1046,7 +1161,8 @@ for (const auto &[num, c] : v) {
 「用一個範圍建立容器」的寫法，\texttt{map} 的元素是
 \texttt{pair<const int, int>}，複製時會轉成 \texttt{pair<int, int>}。 比
 較函式先比次數（由大到小，用 \texttt{>}），相同再比數字（用 \texttt{<}），
-兩邊都是嚴格的比較。
+兩邊都是嚴格的比較。 參數型別很長時，C++14 起 lambda 的參數可以寫成
+\texttt{const auto \&a}，叫泛型 lambda，由編譯器推斷型別。
 \item 一種寫法：
 \begin{code}{cpp}{練習 5 參考解答（讀完距離矩陣 d 之後）}
 vector<int> order;              // 城市 1 以外的城市
