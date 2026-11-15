@@ -1,0 +1,801 @@
+\chapter{生命週期}
+\label{ch:lifetime}
+
+第~2~章的懸置參考、第~3~章「走訪時不要 \texttt{push\_back}」，背後是同一
+個問題：一個物件什麼時候出生、什麼時候消失。 C 也有這個問題，只是 C 的
+變數消失時什麼事都不會發生，記憶體還給系統就結束了。 C++ 的物件消失時會
+執行一段程式，\texttt{string} 和 \texttt{vector} 就是靠這段程式把記憶體
+還回去，所以你從來不用替它們 \texttt{free}。
+
+這一章先整理物件能活多久，再看物件建立和銷毀的順序，以及物件死掉之後還
+去用它會怎樣。 後半章講 \texttt{new}／\texttt{delete}、為什麼平常幾乎用
+不到它們（RAII 與智慧指標），最後談複製和移動。
+
+\section{三種儲存期}
+\label{sec:storage}
+
+\begin{crecap}[區域變數、static 與 malloc]
+C 的變數依照宣告的位置和方式，記憶體配置和釋放的時機不同：
+
+\begin{code}{c}{C 的三種變數}
+int total = 0;               // 全域：程式開始就有，程式結束才釋放
+
+void f(void) {
+    int x = 0;               // 區域：進入區塊時配置，離開區塊就釋放
+    static int calls = 0;    // static 區域：只初始化一次，一直存在
+    int *p = malloc(sizeof(int));   // heap：直到 free(p) 才釋放
+    /* ... */
+}
+\end{code}
+
+區域變數離開區塊就沒了，所以函式不能回傳區域變數的位址；static 區域變數
+一直都在，回傳它的位址沒問題。 \texttt{malloc} 拿到的記憶體不會自己消失，
+忘了 \texttt{free} 就是記憶體洩漏，\texttt{free} 之後還去用就是懸置指標。
+\end{crecap}
+
+C++ 沿用同一套分類，名稱叫\textbf{儲存期}（storage duration）：
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+儲存期 & 例子 & 何時建立 & 何時銷毀 \\
+\midrule
+自動（automatic） & 區域變數、參數 & 執行到宣告 & 離開所在的區塊 \\
+靜態（static） & 全域變數 & \texttt{main} 開始之前 & 程式結束 \\
+ & \texttt{static} 區域變數 & 第一次執行到宣告 & 程式結束 \\
+動態（dynamic） & \texttt{new} 出來的物件 & \texttt{new} & \texttt{delete} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{new} 和 \texttt{delete} 是 C++ 版的 \texttt{malloc} 和
+\texttt{free}，第~\ref{sec:new-delete}~節介紹。 先看前兩種：
+
+\begin{example}[label=ex:storage]{cpp}{(storage.cpp) 自動與靜態儲存期}
+#include <iostream>
+using namespace std;
+
+int nextTicket() {
+    static int ticket = 100;   // static 區域變數：只初始化一次
+    ticket++;
+    return ticket;
+}
+
+int main() {
+    for (int i = 0; i < 3; i++) {
+        int step = 10 + i;     // 自動：每一輪重新建立
+        cout << nextTicket() << ' ' << step << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+101 10 \\
+102 11 \\
+103 12 \\
+}
+
+\texttt{step} 每一輪都是新的，上一輪的值不會留下來；\texttt{ticket} 只在
+第一次呼叫 \texttt{nextTicket} 時設成 $100$，之後每次呼叫都沿用同一個，
+所以號碼一直往上加。
+
+\subsection{範圍與生命週期不是同一件事}
+
+這兩個詞很容易混在一起：
+
+\begin{itemize}
+\item \textbf{範圍}（scope）：名字在原始碼的哪一段看得到。 這是編譯時的
+概念，編譯器用它決定一個名字指的是哪個變數。
+\item \textbf{生命週期}（lifetime）：物件在執行時從建立到銷毀的那段期間。
+只有在生命週期內，物件的記憶體才是你的。
+\end{itemize}
+
+自動變數的兩者剛好重疊：\texttt{step} 的名字只在迴圈本體裡看得到，物件也
+只活一輪。 其他情況就不一樣了：
+
+\begin{itemize}
+\item \texttt{ticket} 的範圍只有 \texttt{nextTicket} 的本體，生命週期卻
+是整個程式。 \texttt{main} 叫不出這個名字，但它一直都在。
+\item 動態配置的物件根本沒有名字，只能透過指標找到。 指標變數離開範圍時，
+物件不會跟著消失；沒有其他指標記得它，它就洩漏了。
+\item 反過來，名字還在範圍內，它指向的物件卻可能已經死了。 指標
+\texttt{p} 指著一個區塊裡的區域變數，區塊結束後 \texttt{p} 還能用，但
+\texttt{*p} 已經沒有東西，這就是第~\ref{sec:dangling}~節的懸置指標。
+\end{itemize}
+
+記住一句話：\textbf{名字看得到，不代表物件還活著。}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以為區域變數會保留上一次的值}：把 \texttt{nextTicket} 裡的
+\texttt{static} 拿掉，每次呼叫都重新建立一個 \texttt{ticket}，三次都回傳
+$101$。 要跨呼叫保留值，就要加 \texttt{static}。
+\end{itemize}
+
+\section{物件何時建立、何時銷毀}
+\label{sec:ctor-dtor}
+
+C 的變數出生和死亡時什麼都不做。 C++ 的結構可以寫兩個特別的函式，讓物件
+建立和銷毀時自動執行一段程式：
+
+\begin{itemize}
+\item \textbf{建構子}（constructor）：名稱跟結構相同，沒有回傳型別。 物件
+建立時自動呼叫，通常用來設定初始值。
+\item \textbf{解構子}（destructor）：名稱是 \texttt{\textasciitilde} 加上
+結構名稱，沒有參數也沒有回傳型別。 物件銷毀時自動呼叫，通常用來釋放資源。
+\end{itemize}
+
+寫法的細節是第~5~章的內容，這裡只用它們做一件事：在建立和銷毀時各印一行，
+讓我們看見物件的生命週期。
+
+\begin{example}[label=ex:lifetime-order]{cpp}{(lifetime\_order.cpp) 會報告出生與死亡的 Tracer}
+#include <iostream>
+#include <string>
+using namespace std;
+
+struct Tracer {
+    string name;
+    Tracer(const string &n) {      // 建構子：物件建立時自動呼叫
+        name = n;
+        cout << "建立 " << name << '\n';
+    }
+    ~Tracer() {                    // 解構子：物件銷毀時自動呼叫
+        cout << "銷毀 " << name << '\n';
+    }
+};
+
+void f() {
+    static Tracer s("static s");
+}
+
+int main() {
+    cout << "main 開始" << '\n';
+    Tracer a("a");
+    {
+        Tracer b("b");
+        Tracer c("c");
+        cout << "內層區塊結束" << '\n';
+    }
+    f();
+    f();
+    Tracer("暫時物件");
+    cout << "main 結束" << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+main 開始 \\
+建立 a \\
+建立 b \\
+建立 c \\
+內層區塊結束 \\
+銷毀 c \\
+銷毀 b \\
+建立 static s \\
+建立 暫時物件 \\
+銷毀 暫時物件 \\
+main 結束 \\
+銷毀 a \\
+銷毀 static s \\
+}
+
+\texttt{Tracer a("a");} 建立一個 \texttt{Tracer}，括號裡的字串交給建構子
+的參數 \texttt{n}。 對照輸出逐段看：
+
+\begin{itemize}
+\item \textbf{區塊裡的物件}依宣告順序建立，離開區塊時以\textbf{相反順序}
+銷毀：\texttt{b}、\texttt{c} 建立，\texttt{c}、\texttt{b} 銷毀。 後建立
+的物件可能用到先建立的物件，先拆後建立的才安全，跟堆盤子一樣。
+\item \textbf{\texttt{static} 區域物件}在第一次呼叫 \texttt{f} 時建立，
+第二次呼叫不會再建立（一般的區域物件則是每次呼叫都建立、銷毀一次）。
+\item \textbf{暫時物件}：\texttt{Tracer("暫時物件");} 建立一個沒有名字的
+物件，它在這個運算式結束時（大致就是到分號為止）就銷毀。
+\item \texttt{main} 的 \texttt{return} 之後，\texttt{a} 先銷毀，靜態儲存
+期的 \texttt{s} 在程式結束時才銷毀。 全域物件則在 \texttt{main} 開始之前
+就建立。
+\end{itemize}
+
+\texttt{string}、\texttt{vector} 也有解構子，做的就是把自己配置的記憶體還
+回去，這就是第~3~章說 \texttt{vector} 離開範圍時記憶體會自動還回去的原因。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{替建構子寫回傳型別}：寫成 \texttt{void Tracer(const string
+\&n)} 會編譯失敗，\texttt{g++} 報 \texttt{return type specification for
+constructor invalid}。 建構子和解構子都不寫回傳型別，連 \texttt{void} 也
+不寫。
+\item \textbf{以為物件在最後一次使用後就銷毀}：不是。 \texttt{a} 在
+\texttt{main} 開頭之後就沒再用到，仍然活到 \texttt{main} 結束。 自動物件
+的銷毀時機只看它在哪個區塊，跟最後一次用到它的位置無關。
+\end{itemize}
+
+\section{懸置指標與懸置參考}
+\label{sec:dangling}
+
+物件的生命週期結束後，原本指向它的指標或綁定它的參考不會自動失效，位址
+還在，只是那塊記憶體已經不屬於這個物件。 這樣的指標叫\textbf{懸置指標}
+（dangling pointer），參考叫\textbf{懸置參考}（dangling reference）。
+透過它們讀寫是未定義行為：可能印出舊值、垃圾，也可能當掉。 所以這一節每個
+錯誤都用 \textbf{AddressSanitizer}（簡稱 ASan）跑一次。 它是 \texttt{g++} 內建的
+檢查工具，編譯時加上 \texttt{-fsanitize=address}，程式執行時一碰到已經
+釋放或已經失效的記憶體，就停下來印出報告：
+
+\begin{code}{bash}{用 ASan 編譯並執行}
+g++ -std=c++17 -Wall -Wextra -g -fsanitize=address vec_dangling.cpp -o vec_dangling
+./vec_dangling
+\end{code}
+
+\texttt{-g} 讓報告裡有行號。 加了 ASan 的程式會變慢、變大，只在開發和除錯
+時用。 本書的 ASan 輸出取自 Linux 上的 \texttt{g++}，只節錄重點並刪掉目錄
+路徑；位址和 \texttt{==} 之間的數字每次執行都不一樣。
+
+\subsection{\texttt{vector} 換記憶體}
+
+第~3~章提過，\texttt{push\_back} 可能讓 \texttt{vector} 換一塊更大的記憶
+體。 \texttt{v.capacity()} 是目前這塊記憶體放得下幾個元素，
+\texttt{size()} 超過它的時候就要換。
+
+\begin{example}[label=ex:vec-dangling]{cpp}{(vec\_dangling.cpp) push\_back 之後，舊的參考懸置了}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {10, 20, 30};
+    int &first = v[0];
+    int *last = &v[2];
+    cout << first << ' ' << *last << ' ' << v.capacity() << '\n';
+
+    v.push_back(40);         // 空間不夠，換一塊更大的記憶體
+    cout << v.capacity() << '\n';
+    cout << first << '\n';   // first 綁著舊記憶體：未定義行為
+    return 0;
+}
+\end{example}
+
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+10 30 3
+6
+=================================================================
+==481641==ERROR: AddressSanitizer: heap-use-after-free on address 0x502000000010 at pc 0x57c85395f7e5 bp 0x7ffd17c330a0 sp 0x7ffd17c33090
+READ of size 4 at 0x502000000010 thread T0
+    #0 0x57c85395f7e4 in main vec_dangling.cpp:13
+
+freed by thread T0 here:
+    #6 0x57c85395fcff in std::vector<int, std::allocator<int> >::push_back(int&&) /usr/include/c++/13/bits/stl_vector.h:1299
+    #7 0x57c85395f76b in main vec_dangling.cpp:11
+\end{code}
+
+報告要從上往下讀：\texttt{heap-use-after-free} 是讀了一塊已經釋放的 heap
+記憶體，\texttt{READ of size 4} 是讀了一個 \texttt{int}，發生在第 $13$ 行
+的 \texttt{cout << first}；\texttt{freed by} 說這塊記憶體是第 $11$ 行的
+\texttt{push\_back} 釋放的（完整的報告還有一段
+\texttt{previously allocated by}，說它是第 $6$ 行建立 \texttt{v} 時配置的）。
+合起來就是整個經過：\texttt{v} 原本的容量是
+$3$，第四個元素放不下，\texttt{push\_back} 配置一塊容量 $6$ 的新記憶體、
+把元素搬過去、釋放舊的，\texttt{first} 和 \texttt{last} 還指著舊的那塊。
+容量怎麼成長由實作決定，$3$ 和 $6$ 是本書測試環境的結果；可以確定的是
+\texttt{size()} 超過 \texttt{capacity()} 時，所有指向元素的參考、指標和
+迭代器（第~9~章）都會失效。
+
+修法有三種：存下標而不是參考（\texttt{v[0]} 每次都重新算位址）；在
+\texttt{push\_back} 之後才取參考；或者事先用 \texttt{v.reserve(n)} 把容量
+預留到至少 $n$，\texttt{size()} 不超過 $n$ 之前就不會換記憶體。
+
+\subsection{離開區塊的區域變數}
+
+範圍與生命週期不同步的最簡單例子，是第~\ref{sec:storage}~節提過的情況：
+
+\begin{code}{cpp}{指標比它指的變數活得久（錯誤示範）}
+int *p = nullptr;
+{
+    int x = 42;
+    p = &x;
+}                       // x 的生命週期在這裡結束
+cout << *p << '\n';     // p 還在範圍內，*p 是未定義行為
+\end{code}
+
+ASan 回報 \texttt{stack-use-after-scope}（範圍結束後還在用 stack 上的變數），
+報告裡會指出讀到的是 \texttt{'x'}。
+
+第~2~章的「回傳區域變數的參考」是同一類錯誤，只是區塊換成了函式。
+\texttt{g++ -Wall} 會先警告 \texttt{reference to local variable 'x'
+returned}。 在本書測試的環境下，\texttt{g++} 讓這種函式直接回傳空位址，
+ASan 報的是 \texttt{SEGV on unknown address 0x000000000000}。 修法都一樣：
+改成傳值回傳。
+
+\subsection{暫時物件的 \texttt{c\_str()}}
+
+要把 \texttt{string} 交給只收 C 字串的函式（例如 \texttt{printf}、
+\texttt{fopen}），要呼叫 \texttt{s.c\_str()}，它回傳一個
+\texttt{const char *}，指向 \texttt{s} 內部的字元。 這個指標只在
+\texttt{s} 還活著、而且沒被修改時有效：
+
+\begin{code}{cpp}{指向暫時字串的指標（錯誤示範）}
+string first = "Grace", last = "Hopper";
+const char *p = (first + " Brewster " + last).c_str();
+printf("%s\n", p);      // 暫時字串已經銷毀
+\end{code}
+
+\texttt{first + " Brewster " + last} 是一個暫時物件，第 $2$ 行的分號一到
+就銷毀了，\texttt{p} 隨即懸置。 ASan 報 \texttt{heap-use-after-free}，
+\texttt{freed by} 指向宣告 \texttt{p} 的那一行。 這段程式 \texttt{-Wall -Wextra} 不會
+警告。
+
+暫時物件活到運算式結束，所以在同一個運算式裡用完就沒問題：
+\texttt{printf("\%s\textbackslash n", (first + " Brewster " +
+last).c\_str());}。 或者先存成變數 \texttt{string full = ...;}，再用
+\texttt{full.c\_str()}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{程式沒當掉就以為沒事}：未定義行為不保證當掉。 不開 ASan 時，
+範例~\ref{ex:vec-dangling} 在本書測試的環境下照樣跑完，最後一行印出一個
+每次執行都不同的數字；換個環境，它也可能剛好印出 \texttt{10}，看起來完全
+正常。 懷疑有懸置的時候，加 \texttt{-fsanitize=address} 跑一次。
+\item \textbf{把 \texttt{c\_str()} 的結果存起來，之後又修改字串}：
+\texttt{const char *p = s.c\_str();} 之後做 \texttt{s += "..."}，
+\texttt{s} 可能換了一塊記憶體，\texttt{p} 就懸置了。 要用 C 字串時再呼叫
+\texttt{c\_str()}，不要把結果存著。
+\end{itemize}
+
+\section{\texttt{new} 與 \texttt{delete}}
+\label{sec:new-delete}
+
+\begin{crecap}[malloc 與 free 的規則]
+\texttt{malloc(n)} 向 heap 要 $n$ 個位元組，內容是垃圾值，失敗時回傳
+\texttt{NULL}；\texttt{free(p)} 把它還回去。 規則只有幾條，但每條都會出
+事：每塊記憶體剛好 \texttt{free} 一次；\texttt{free} 之後不能再用；最後
+一個指向它的指標消失之前一定要 \texttt{free}。 違反第一條是雙重釋放
+（double free），第二條是懸置指標，第三條是記憶體洩漏（memory leak）。
+\end{crecap}
+
+C++ 動態配置用的是運算子 \texttt{new} 和 \texttt{delete}。 單一物件用
+\texttt{new}／\texttt{delete}，例如 \texttt{int *p = new int(42);} 配置一個
+初始值 $42$ 的 \texttt{int}，用完 \texttt{delete p;}；陣列用
+\texttt{new[]}／\texttt{delete[]}。 下面的 \texttt{Tracer} 跟
+範例~\ref{ex:lifetime-order} 的一樣，只是寫得緊湊一點：
+
+\begin{example}[label=ex:new-delete]{cpp}{(new\_delete.cpp) 配置單一物件、陣列與結構}
+#include <iostream>
+#include <string>
+using namespace std;
+
+struct Tracer {
+    string name;
+    Tracer(const string &n) { name = n; cout << "建立 " << name << '\n'; }
+    ~Tracer() { cout << "銷毀 " << name << '\n'; }
+};
+
+int main() {
+    int n = 5;
+    int *a = new int[n];           // n 個 int 的陣列
+    for (int i = 0; i < n; i++) {
+        a[i] = i * i;
+    }
+    cout << a[n - 1] << '\n';
+    delete[] a;                    // 陣列要用 delete[]
+
+    Tracer *t = new Tracer("heap 上的 t");
+    cout << t->name << '\n';
+    delete t;                      // 先呼叫解構子，再釋放記憶體
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+16 \\
+建立 heap 上的 t \\
+heap 上的 t \\
+銷毀 heap 上的 t \\
+}
+
+跟 \texttt{malloc}／\texttt{free} 比較：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & \texttt{malloc}／\texttt{free} & \texttt{new}／\texttt{delete} \\
+\midrule
+要多少 & 位元組數 & 型別（和個數） \\
+回傳型別 & \texttt{void *}，C++ 裡要轉型 & 對應型別的指標 \\
+建構子、解構子 & 不呼叫 & 呼叫 \\
+失敗時 & 回傳 \texttt{NULL} & 丟出例外 \texttt{std::bad\_alloc} \\
+陣列 & 同一組函式 & \texttt{new[]} 配 \texttt{delete[]} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最重要的差別是第三列。 \texttt{Tracer} 裡有一個 \texttt{string}，用
+\texttt{malloc} 拿到的只是一塊沒有初始化的位元組，裡面的 \texttt{string}
+從來沒有被建構過，拿來用是未定義行為。 \texttt{new} 先配置記憶體再呼叫建
+構子，\texttt{delete} 先呼叫解構子再釋放，物件的生命週期才完整。 所以
+C++ 的程式裡，含有 \texttt{string}、\texttt{vector} 這類成員的結構不能用
+\texttt{malloc}。
+
+另外，\texttt{new int[n]} 跟 \texttt{malloc} 一樣不會把元素設成 $0$；要
+全部是 $0$ 就寫 \texttt{new int[n]()}。
+
+\subsection{常見錯誤}
+
+\texttt{malloc} 的三種錯誤，\texttt{new} 一樣會犯，另外還多一種配錯對的。
+這幾種錯誤都編得過，下面是 ASan 抓到它們的樣子。
+
+\begin{itemize}
+\item \textbf{\texttt{new[]} 配 \texttt{delete}}：\texttt{int *a = new
+int[5];} 之後寫 \texttt{delete a;}，是未定義行為。 \texttt{g++ -Wall}
+這次有警告（\texttt{called on pointer returned from a mismatched
+allocation function [-Wmismatched-new-delete]}），ASan 執行時則報
+\texttt{alloc-dealloc-mismatch (operator new [] vs operator delete)}。
+規則是成對：\texttt{new} 配 \texttt{delete}、\texttt{new[]} 配
+\texttt{delete[]}、\texttt{malloc} 配 \texttt{free}，不能交叉。
+\item \textbf{重複 \texttt{delete}}：同一個指標 \texttt{delete} 兩次，ASan
+報 \texttt{attempting double-free}，並列出兩次釋放各在哪一行。
+\texttt{delete nullptr} 什麼都不做，所以
+\texttt{delete} 之後把指標設成 \texttt{nullptr} 能擋掉一部分這類錯誤。
+\item \textbf{忘了 \texttt{delete}}：最常見的情況是函式有好幾個出口，其中
+一個忘了釋放：
+\begin{code}{cpp}{(leak.cpp) 提早 return 造成洩漏（錯誤示範，main 省略）}
+#include <iostream>
+using namespace std;
+
+// 0*0 + 1*1 + ... + (n-1)*(n-1)，超過 100 就回傳 -1
+int sumSquares(int n) {
+    int *a = new int[n];
+    for (int i = 0; i < n; i++) {
+        a[i] = i * i;
+    }
+    int s = 0;
+    for (int i = 0; i < n; i++) {
+        if (s + a[i] > 100) {
+            return -1;           // 提早離開，忘了 delete[]
+        }
+        s += a[i];
+    }
+    delete[] a;
+    return s;
+}
+\end{code}
+\texttt{main} 裡只有一行 \texttt{cout << sumSquares(5) << ' ' <<
+sumSquares(10) << '\textbackslash n';}，印出 \texttt{30 -1}，看不出任何問題。 ASan 會在程式結束時檢查還有哪些記
+憶體沒還：
+\begin{code}{text}{ASan 的洩漏報告（節錄）}
+==482383==ERROR: LeakSanitizer: detected memory leaks
+
+Direct leak of 40 byte(s) in 1 object(s) allocated from:
+    #0 0x70254f4fe6c8 in operator new[](unsigned long) ../../../../src/libsanitizer/asan/asan_new_delete.cpp:98
+    #1 0x5c27037fc2d7 in sumSquares(int) leak.cpp:6
+\end{code}
+$40$ 個位元組就是 \texttt{sumSquares(10)} 那次的 $10$ 個 \texttt{int}。
+洩漏檢查（LeakSanitizer）在 Linux 上預設開啟；macOS 內建的編譯器通常不支
+援這一項，其他檢查照樣可用。
+\end{itemize}
+
+\section{RAII 與智慧指標}
+\label{sec:raii}
+
+上一節的洩漏有一個簡單到不行的修法：不要自己 \texttt{new}。 把
+\texttt{leak.cpp} 第 $6$ 行的 \texttt{int *a = new int[n];} 換成
+\texttt{vector<int> a(n);}（記得 \texttt{\#include <vector>}），刪掉
+\texttt{delete[] a;} 那一行，其他都不用改。
+
+\texttt{a} 現在是自動變數。 不管函式從哪一個 \texttt{return} 離開，離開時
+\texttt{a} 的解構子一定會執行，把記憶體還回去。 用 ASan 跑同樣的
+\texttt{main}，輸出一樣是 \texttt{30 -1}，沒有任何報告。
+
+這個做法有個名字，叫 \textbf{RAII}（Resource Acquisition Is
+Initialization，取得資源就是初始化）。 名字不好記，意思很簡單：
+
+\begin{itemize}
+\item 資源（記憶體、開啟的檔案……）交給一個物件管。 物件的建構子取得資源，
+解構子釋放資源。
+\item 這個物件放在自動變數裡。 它的生命週期就是資源被持有的期間，區塊一
+結束，資源就釋放，不需要你記得。
+\end{itemize}
+
+\texttt{string} 和 \texttt{vector} 就是這樣的物件，這也是本書到目前為止
+從來沒寫過 \texttt{delete} 的原因。 第~5~章學會寫類別後，你也能自己寫出
+這樣的類別。
+
+\subsection{\texttt{unique\_ptr} 與 \texttt{shared\_ptr}}
+
+有時候需要的不是一整串元素，而是 heap 上的單一物件，例如要讓物件活得比建
+立它的函式更久，或者第~7~章用指標處理不同型別的物件。 這時用
+\texttt{<memory>} 裡的\textbf{智慧指標}（smart pointer），它們就是套用
+RAII 的指標：
+
+\begin{itemize}
+\item \texttt{unique\_ptr<T>}：\textbf{獨占}一個物件。 同一時間只有一個
+\texttt{unique\_ptr} 擁有它，\texttt{unique\_ptr} 銷毀時物件跟著
+\texttt{delete}。 用 \texttt{make\_unique<T>(建構子的引數)} 建立。
+\item \texttt{shared\_ptr<T>}：好幾個 \texttt{shared\_ptr} \textbf{共同
+擁有}一個物件。 它們一起記著目前有幾個擁有者（\texttt{use\_count()}），
+最後一個擁有者銷毀或放手時，物件才 \texttt{delete}。 用
+\texttt{make\_shared<T>(...)} 建立。
+\end{itemize}
+
+兩者用起來都像一般指標：\texttt{*p} 取物件，\texttt{p->name} 取成員，可
+以跟 \texttt{nullptr} 比較。
+
+下面的範例沿用同一個 \texttt{Tracer}：
+
+\begin{example}[label=ex:smart-ptr]{cpp}{(smart\_ptr.cpp) unique\_ptr 交出所有權，shared\_ptr 計算擁有者}
+#include <iostream>
+#include <memory>
+#include <string>
+using namespace std;
+
+struct Tracer {
+    string name;
+    Tracer(const string &n) { name = n; cout << "建立 " << name << '\n'; }
+    ~Tracer() { cout << "銷毀 " << name << '\n'; }
+};
+
+unique_ptr<Tracer> makeTracer(const string &name) {
+    unique_ptr<Tracer> p = make_unique<Tracer>(name);
+    cout << "makeTracer 結束" << '\n';
+    return p;                      // 所有權交給呼叫者
+}
+
+int main() {
+    unique_ptr<Tracer> u = makeTracer("u");
+
+    shared_ptr<Tracer> s1 = make_shared<Tracer>("共用");
+    {
+        shared_ptr<Tracer> s2 = s1;  // 兩個 shared_ptr 指向同一個物件
+        cout << s1.use_count() << '\n';
+    }
+    cout << s1.use_count() << '\n';
+    s1.reset();                      // 最後一個擁有者放手，物件銷毀
+    cout << "main 結束" << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+建立 u \\
+makeTracer 結束 \\
+建立 共用 \\
+2 \\
+1 \\
+銷毀 共用 \\
+main 結束 \\
+銷毀 u \\
+}
+
+\begin{itemize}
+\item \texttt{makeTracer} 結束時，區域變數 \texttt{p} 銷毀了，物件卻沒有
+銷毀：回傳時所有權已經交給 \texttt{main} 的 \texttt{u}。 物件最後在
+\texttt{main} 結束、\texttt{u} 銷毀時才跟著銷毀。
+\item \texttt{s2 = s1} 之後有兩個擁有者；內層區塊結束，\texttt{s2} 銷毀，
+剩一個。 \texttt{s1.reset()} 讓 \texttt{s1} 放手，擁有者變成 $0$，物件
+立刻銷毀，所以 \texttt{銷毀 共用} 出現在 \texttt{main 結束} 之前。
+\end{itemize}
+
+怎麼選：先考慮一般變數、\texttt{string}、\texttt{vector}，大部分情況到
+這裡就解決了；需要 heap 上的單一物件，用 \texttt{unique\_ptr}；真的有好
+幾個地方共同擁有一個物件、說不準誰最後用完，才用 \texttt{shared\_ptr}，
+它要多維護一個計數，成本比 \texttt{unique\_ptr} 高。
+
+寫成規則就是：\textbf{一般程式碼裡不要出現 \texttt{new} 和
+\texttt{delete}}。 需要動態配置時，交給 \texttt{vector}、
+\texttt{make\_unique} 或 \texttt{make\_shared}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{複製 \texttt{unique\_ptr}}：\texttt{unique\_ptr<int> q =
+p;} 編譯失敗，訊息的開頭是 \texttt{use of deleted function
+'std::unique\_ptr<\_Tp, \_Dp>::unique\_ptr(const
+std::unique\_ptr<\_Tp, \_Dp>\&)'}。 獨占的東西不能複製。 要把所有權交給
+\texttt{q}，寫 \texttt{unique\_ptr<int> q = std::move(p);}，下一節說明。
+\item \textbf{自己 \texttt{delete} 智慧指標管的物件}：\texttt{p.get()} 會
+回傳裡面的原始指標，給只收一般指標的函式用。 對它 \texttt{delete}，之後
+\texttt{p} 銷毀時又 \texttt{delete} 一次，就是雙重釋放。 交給智慧指標的
+物件，就讓它負責到底。
+\end{itemize}
+
+\section{複製與移動}
+\label{sec:copy-move}
+
+\texttt{vector<int> b = a;} 是\textbf{複製}（copy）：\texttt{b} 配置一塊
+自己的記憶體，把 \texttt{a} 的元素逐一複製過去。 之後兩者各自獨立，改一
+個不影響另一個。 代價跟元素個數成正比，\texttt{a} 有一百萬個元素，就要
+配置約 $4$ MB 的記憶體、複製一百萬次。 這是第~2、3~章一直建議用
+\texttt{const} 參考傳 \texttt{vector} 的原因。
+
+如果 \texttt{a} 之後不會再用，這份複製就浪費了：直接把 \texttt{a} 的那塊
+記憶體交給 \texttt{b} 就好。 這叫\textbf{移動}（move），寫成
+\texttt{std::move(a)}（在 \texttt{<utility>} 裡，習慣上連 \texttt{std::} 一起寫）：
+
+\begin{example}[label=ex:copy-move]{cpp}{(copy\_move.cpp) 複製與移動 vector}
+#include <iostream>
+#include <utility>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> a(1000000, 7);
+    vector<int> b = a;               // 複製：b 有自己的一百萬個 int
+    b[0] = 1;
+    cout << a[0] << ' ' << b[0] << '\n';
+
+    const int *before = a.data();    // a 的元素放在哪裡
+    vector<int> c = std::move(a);    // 移動：c 接手 a 的記憶體
+    cout << c.size() << ' ' << (c.data() == before) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+7 1 \\
+1000000 1 \\
+}
+
+\begin{itemize}
+\item \texttt{v.data()} 回傳元素所在記憶體的位址。 移動之後
+\texttt{c.data()} 跟原本的 \texttt{a.data()} 相同，表示 \texttt{c} 拿走
+的就是 \texttt{a} 那塊記憶體，一個元素都沒有複製。 不管有幾個元素，移動
+一個 \texttt{vector} 只要搬幾個指標。
+\item \texttt{std::move} 本身不搬任何東西。 它只是把 \texttt{a} 標成「可以
+被搬走」，真正接手記憶體的是 \texttt{c} 的建構過程。 \texttt{string}、
+\texttt{vector}、\texttt{unique\_ptr} 都會利用這個標記；第~5~章會看到自
+己的類別怎麼支援移動。
+\item 被移走的物件（moved-from）處於\textbf{有效但未指定}（valid but
+unspecified）的狀態：它還是一個合法的物件，可以重新指定、可以正常銷毀，
+但內容沒有保證，除非該型別另外說明（\texttt{unique\_ptr} 就保證被移走後
+是 \texttt{nullptr}）。 所以範例移動之後就不再讀 \texttt{a}；要再用，先重新指定，例如
+\texttt{a = \{1, 2, 3\};}。 \texttt{string} 也一樣：
+\texttt{names.push\_back(std::move(s));} 把 \texttt{s} 的字元搬進
+\texttt{vector}，之後不要再讀 \texttt{s}。
+\end{itemize}
+
+很多時候移動是自動發生的，不必寫 \texttt{std::move}。 第~2~章說過，
+\texttt{a + b} 這種算完就丟的值是 rvalue；暫時物件反正馬上要銷毀，編譯器
+會直接移動它。 \texttt{names.push\_back(first + last)} 就會移動那個相加
+出來的暫時字串。 函式回傳區域變數時也一樣，編譯器會直接把它交給呼叫者，
+這就是第~3~章說回傳 \texttt{vector} 不必擔心複製的原因。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{移動之後繼續使用}：上面的 \texttt{push\_back} 之後印
+\texttt{s}，編譯器不會阻止，但印出什麼沒有保證。 移走之後，除非重
+新指定，否則不要再讀它。
+\item \textbf{對 \texttt{const} 物件 \texttt{std::move}}：例如
+\texttt{const string s = "...";} 之後寫 \texttt{string t =
+std::move(s);}，編得過，也沒有
+警告，但 \texttt{const} 物件不能被改，所以實際上做的是複製。 想移動的
+物件不要宣告成 \texttt{const}。
+\item \textbf{回傳時多寫 \texttt{std::move}}：\texttt{return
+std::move(result);} 反而讓編譯器沒辦法直接把 \texttt{result} 交給呼叫者，
+\texttt{g++ -Wall} 會警告 \texttt{moving a local object in a return
+statement prevents copy elision}。 回傳區域變數直接寫
+\texttt{return result;}。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch4-exercises}
+
+\begin{drills}[label=drills:ch4]
+\item 預測下面程式的輸出。 \texttt{T} 跟本章的 \texttt{Tracer} 一樣，只是
+建立時印 \texttt{+} 和名字，銷毀時印 \texttt{-} 和名字，後面各接一個空白。
+\begin{code}{cpp}{練習：建立與銷毀的順序}
+void f(int k) {
+    T x("x" + to_string(k));
+    if (k > 1) {
+        T y("y");
+        return;
+    }
+    T z("z");
+}
+
+int main() {
+    T a("a");
+    f(1);
+    cout << '\n';
+    f(2);
+    cout << '\n';
+    T("tmp");
+    cout << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式用 \texttt{g++ -Wall -Wextra} 編譯沒有任何警告，但它有錯。
+錯在哪裡？ 用 ASan 執行會看到什麼？ 怎麼改？
+\begin{code}{cpp}{練習：找錯}
+#include <cstdio>
+#include <string>
+using namespace std;
+
+const char *greeting(const string &name) {
+    string s = "Hello, " + name + "!";
+    return s.c_str();
+}
+
+int main() {
+    printf("%s\n", greeting("Barbara Liskov"));
+    return 0;
+}
+\end{code}
+\item 下面的程式要輸出陣列裡的最大值。 它確實印出 \texttt{9}，但接著在本書測試的環境下
+印出 \texttt{free(): double free detected in tcache 2} 並異常結束。 裡
+面有三個跟 \texttt{new}／\texttt{delete} 有關的錯誤。 找出來，再用 \texttt{vector}
+改寫，讓程式裡沒有任何 \texttt{new} 和 \texttt{delete}。
+\begin{code}{cpp}{練習：三個錯誤}
+#include <iostream>
+using namespace std;
+
+int main() {
+    int *a = new int[4]{3, 9, 2, 9};
+    int *best = new int(a[0]);
+    for (int i = 1; i < 4; i++) {
+        if (a[i] > *best) {
+            best = new int(a[i]);
+        }
+    }
+    cout << *best << '\n';
+    delete a;
+    delete best;
+    delete best;
+    return 0;
+}
+\end{code}
+\item 預測下面程式的輸出。 如果在最後再印一次 \texttt{b.size()}，印出的值
+有保證嗎？
+\begin{code}{cpp}{練習：複製、移動與智慧指標}
+#include <iostream>
+#include <memory>
+#include <string>
+#include <utility>
+using namespace std;
+
+int main() {
+    string a = "abc";
+    string b = a;
+    string c = std::move(b);
+    unique_ptr<int> p = make_unique<int>(8);
+    unique_ptr<int> q = std::move(p);
+    cout << a.size() << ' ' << c.size() << '\n';
+    cout << (p == nullptr) << ' ' << *q << '\n';
+    return 0;
+}
+\end{code}
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出四行：\texttt{+a +x1 +z -z -x1}、\texttt{+x2 +y -y -x2}、
+\texttt{+tmp -tmp}、\texttt{-a}（每個名字後面都有一個空白；\texttt{-a} 是
+\texttt{main} 結束後才印的，後面沒有換行）。 \texttt{f(1)} 依序建立 \texttt{x1}、\texttt{z}，結束時反過來銷毀。
+\texttt{f(2)} 從 \texttt{if} 裡提早 \texttt{return}：先離開 \texttt{if}
+的區塊，銷毀 \texttt{y}，再離開函式，銷毀 \texttt{x2}；\texttt{z} 根本沒有
+建立。 \texttt{tmp} 在同一個敘述裡建立又銷毀；\texttt{a} 在最後的換行之後才銷毀。
+\item \texttt{s} 是 \texttt{greeting} 的區域變數，函式結束時銷毀，
+\texttt{c\_str()} 回傳的指標指向它已經釋放的記憶體，\texttt{printf} 讀的
+是懸置指標。 用 ASan 執行會看到 \texttt{heap-use-after-free}。 改法是讓
+\texttt{greeting} 回傳 \texttt{string}，呼叫端寫
+\texttt{printf("\%s\textbackslash n", greeting("Barbara
+Liskov").c\_str());}，輸出 \texttt{Hello, Barbara Liskov!}。
+暫時字串活到分號，\texttt{printf} 用完時它還在。
+\item 三個錯誤：(1) 迴圈裡每找到更大的數就 \texttt{new} 一個新的
+\texttt{int}，舊的那個沒有 \texttt{delete}，洩漏；(2) \texttt{a} 是
+\texttt{new[]} 配置的，要用 \texttt{delete[]}，寫成 \texttt{delete} 是
+未定義行為；(3) \texttt{best} 被 \texttt{delete} 兩次。 改寫時陣列換成
+\texttt{vector<int> a = \{3, 9, 2, 9\};}，最大值用一個 \texttt{int best}
+記就夠了，迴圈裡寫 \texttt{if (a[i] > best) best = a[i];}，整支程式不需要
+任何 \texttt{new} 或 \texttt{delete}。
+\item 輸出兩行：\texttt{3 3} 和 \texttt{1 8}。 \texttt{a} 沒有被動過，還是
+$3$ 個字元；\texttt{c} 拿到 \texttt{b} 從 \texttt{a} 複製來的 \texttt{"abc"}；
+\texttt{p} 被移走之後保證是 \texttt{nullptr}，印 \texttt{1}；\texttt{*q}
+是 $8$。 \texttt{b} 是被移走的 \texttt{string}，處於有效但未指定的狀態，
+所以 \texttt{b.size()} 沒有保證；要用 \texttt{b}，先重新指定或呼叫
+\texttt{b.clear()}。
+\end{enumerate}

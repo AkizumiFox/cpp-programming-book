@@ -8,7 +8,8 @@
 
 - 第 1 章 PDF：[`output/chapters/01_FromCToCpp.pdf`](output/chapters/01_FromCToCpp.pdf)
 - 第 2 章 PDF：[`output/chapters/02_ReferencesAndFunctions.pdf`](output/chapters/02_ReferencesAndFunctions.pdf)
-- 第 3 章 PDF（草稿）：[`output/chapters/03_StringAndVector.pdf`](output/chapters/03_StringAndVector.pdf)
+- 第 3 章 PDF：[`output/chapters/03_StringAndVector.pdf`](output/chapters/03_StringAndVector.pdf)
+- 第 4 章 PDF（草稿）：[`output/chapters/04_Lifetime.pdf`](output/chapters/04_Lifetime.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
@@ -18,7 +19,7 @@
 | 1 | 從 C 到 C++ | 完成 |
 | 2 | 參考與函式 | 完成 |
 | 3 | string 與 vector | 完成 |
-| 4 | 生命週期 | 未開始 |
+| 4 | 生命週期 | 草稿 |
 | 5 | 類別 | 未開始 |
 | 6 | 運算子多載 | 未開始 |
 | 7 | 繼承與多型 | 未開始 |
