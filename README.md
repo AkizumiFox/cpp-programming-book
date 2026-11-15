@@ -10,6 +10,7 @@
 - 第 2 章 PDF：[`output/chapters/02_ReferencesAndFunctions.pdf`](output/chapters/02_ReferencesAndFunctions.pdf)
 - 第 3 章 PDF：[`output/chapters/03_StringAndVector.pdf`](output/chapters/03_StringAndVector.pdf)
 - 第 4 章 PDF：[`output/chapters/04_Lifetime.pdf`](output/chapters/04_Lifetime.pdf)
+- 第 5 章 PDF（草稿）：[`output/chapters/05_Classes.pdf`](output/chapters/05_Classes.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
@@ -20,7 +21,7 @@
 | 2 | 參考與函式 | 完成 |
 | 3 | string 與 vector | 完成 |
 | 4 | 生命週期 | 完成 |
-| 5 | 類別 | 未開始 |
+| 5 | 類別 | 草稿 |
 | 6 | 運算子多載 | 未開始 |
 | 7 | 繼承與多型 | 未開始 |
 | 8 | 模板與 STL 容器 | 未開始 |

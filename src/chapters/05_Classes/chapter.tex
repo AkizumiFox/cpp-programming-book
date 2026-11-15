@@ -1,0 +1,986 @@
+\chapter{類別}
+\label{ch:classes}
+
+第~3~章用過 \texttt{s.size()}、\texttt{v.push\_back(x)} 這種寫法，第~4~章
+的 \texttt{Tracer} 寫過建構子和解構子。 這一章把這些整理起來，自己寫
+\textbf{類別}（class）：把資料和操作它的函式放在一起，並且規定外面的程式
+只能透過這些函式改資料。
+
+前三節從 C 的 \texttt{struct} 出發，依序加上成員函式、\texttt{private}
+和建構子。 第四節寫一個自己管理記憶體的類別，順便看它被複製時會出什麼
+問題。 最後兩節講 \texttt{this}、\texttt{const} 成員函式和
+\texttt{static} 成員。
+
+\section{從 \texttt{struct} 到成員函式}
+\label{sec:member-func}
+
+\begin{crecap}[struct 與傳結構指標的函式]
+C 把相關的資料放進一個 \texttt{struct}，操作它的函式另外寫，第一個參數傳
+結構的指標：
+
+\begin{code}{c}{C 的銀行帳戶}
+struct Account {
+    char owner[32];
+    int balance;
+};
+
+void deposit(struct Account *a, int amount) {
+    a->balance += amount;
+}
+
+int withdraw(struct Account *a, int amount) {
+    if (amount > a->balance) {
+        return 0;
+    }
+    a->balance -= amount;
+    return 1;
+}
+
+/* main 裡 */
+deposit(&acc, 100);
+withdraw(&acc, 30);
+acc.balance = -500;        // 沒有人擋得住
+\end{code}
+
+\texttt{withdraw} 檢查了餘額夠不夠，但 \texttt{main} 可以直接改
+\texttt{acc.balance}，函式裡的檢查等於白做。 \texttt{deposit}、
+\texttt{withdraw} 和 \texttt{struct Account} 是一組的，也只靠命名和參數
+型別看得出來。
+\end{crecap}
+
+C++ 可以把函式寫進結構裡，叫做\textbf{成員函式}（member function）。 呼
+叫時寫 \texttt{物件.函式(引數)}，就像第~3~章的 \texttt{s.size()}：
+
+\begin{example}[label=ex:member-func]{cpp}{(member\_func.cpp) 把函式寫進結構}
+#include <iostream>
+#include <string>
+using namespace std;
+
+struct Account {
+    string owner;
+    int balance;
+
+    void deposit(int amount) {        // 寫在結構裡面
+        balance += amount;
+    }
+    bool withdraw(int amount);        // 只宣告，定義寫在外面
+    void print() {
+        cout << owner << ": " << balance << '\n';
+    }
+};
+
+bool Account::withdraw(int amount) {
+    if (amount > balance) {
+        return false;
+    }
+    balance -= amount;
+    return true;
+}
+
+int main() {
+    Account a;
+    a.owner = "Ada";
+    a.balance = 0;
+    a.deposit(100);
+    cout << a.withdraw(30) << ' ' << a.withdraw(500) << '\n';
+    a.print();
+
+    Account b = {"Alan", 50};
+    b.deposit(5);
+    b.print();
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 0 \\
+Ada: 70 \\
+Alan: 55 \\
+}
+
+\begin{itemize}
+\item \texttt{a.deposit(100)} 對應 C 的 \texttt{deposit(\&acc, 100)}。
+呼叫的物件寫在點的前面，不再當成參數傳。
+\item 成員函式裡直接寫 \texttt{balance}，指的是「呼叫這個函式的那個物件」
+的 \texttt{balance}。 \texttt{a.deposit(100)} 改的是 \texttt{a.balance}，
+\texttt{b.deposit(5)} 改的是 \texttt{b.balance}。 不用寫
+\texttt{a->balance}。
+\item 成員函式可以直接寫在結構裡，也可以在結構裡只寫宣告，定義寫在外面。
+寫在外面時，名稱前面要加 \texttt{Account::}，表示這是 \texttt{Account}
+的 \texttt{withdraw}。 短的函式通常寫在裡面，長的寫在外面。
+\item \texttt{Account b = \{"Alan", 50\};} 依成員的順序給初值，跟 C 一樣。
+下一節把成員改成 \texttt{private} 之後就不能這樣寫了，要改用建構子。
+\item 成員函式不佔物件的空間，\texttt{sizeof(Account)} 只算 \texttt{owner}
+和 \texttt{balance}。
+\end{itemize}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{結構最後的分號}：\texttt{struct Account \{ ... \}} 的右大括號
+後面要接分號，跟 C 一樣。 漏了的話，\texttt{g++} 報 \texttt{expected ';'
+after struct definition}。
+\item \textbf{呼叫成員函式沒有寫物件}：在 \texttt{main} 裡寫
+\texttt{deposit(100);}，編譯器報 \texttt{'deposit' was not declared in this
+scope}。 \texttt{deposit} 是 \texttt{Account} 的成員，不是全域函式，要寫
+\texttt{a.deposit(100)}。
+\item \textbf{在外面定義時漏了 \texttt{Account::}}：寫成
+\texttt{bool withdraw(int amount) \{ ... \}}，這就是一個跟
+\texttt{Account} 無關的普通函式，裡面的 \texttt{balance} 找不到，報
+\texttt{'balance' was not declared in this scope}。
+\end{itemize}
+
+\section{存取控制：\texttt{public} 與 \texttt{private}}
+\label{sec:access}
+
+上一節的 \texttt{Account} 還是誰都能改 \texttt{balance}。 C++ 可以把成員
+標成 \texttt{private}（私有），只有這個類別自己的成員函式能存取；標成
+\texttt{public}（公開）的成員，外面的程式才能用。
+
+\begin{example}[label=ex:access]{cpp}{(access.cpp) balance 改成 private}
+#include <iostream>
+using namespace std;
+
+class Account {
+public:
+    void deposit(int amount) {
+        if (amount > 0) {
+            balance += amount;
+        }
+    }
+    bool withdraw(int amount) {
+        if (amount <= 0 || amount > balance) {
+            return false;
+        }
+        balance -= amount;
+        return true;
+    }
+    int getBalance() {
+        return balance;
+    }
+
+private:
+    int balance = 0;    // 不變量：balance >= 0
+};
+
+int main() {
+    Account a;
+    a.deposit(100);
+    a.deposit(-20);                  // 不合理的金額，忽略
+    cout << a.withdraw(30) << ' ' << a.withdraw(500) << '\n';
+    cout << a.getBalance() << '\n';
+    // a.balance = -500;             // 編譯失敗：balance 是 private
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 0 \\
+70 \\
+}
+
+\begin{itemize}
+\item \texttt{public:} 和 \texttt{private:} 是標籤，從標籤開始到下一個標籤
+（或類別結尾）的成員都套用它。 習慣上 \texttt{public} 寫前面，使用這個類
+別的人只需要看這一段。
+\item \texttt{main} 裡寫 \texttt{a.balance = -500;}，編譯失敗：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: 'int Account::balance' is private within this context
+\end{code}
+\item 外面要知道餘額，就透過 \texttt{getBalance()}。 這種只回傳成員值的函
+式叫 \textbf{getter}。
+\item \texttt{int balance = 0;} 是\textbf{預設成員初始值}：每個
+\texttt{Account} 建立時 \texttt{balance} 都從 $0$ 開始。 沒有寫的話，
+\texttt{Account a;} 的 \texttt{balance} 跟 C 的區域變數一樣是垃圾值。
+\end{itemize}
+
+\texttt{class} 和 \texttt{struct} 只差一件事：沒有寫標籤的成員，
+\texttt{struct} 預設是 \texttt{public}，\texttt{class} 預設是
+\texttt{private}。 其他功能完全相同，\texttt{struct} 也可以有
+\texttt{private} 成員和建構子。 習慣上，單純放資料、所有成員都公開的用
+\texttt{struct}（例如第~4~章的 \texttt{Tracer}），有 \texttt{private} 成員
+的用 \texttt{class}。
+
+\subsection{不變量}
+
+範例裡的註解寫了「\texttt{balance >= 0}」。 這種對這個類別的每個物件隨時
+都成立的條件，叫\textbf{不變量}（invariant）。 \texttt{balance} 是
+\texttt{private}，能改它的只有 \texttt{deposit} 和 \texttt{withdraw}，兩
+個函式都會檢查金額，所以不管外面怎麼呼叫，餘額都不會變成負的。 要確認這件
+事，只要檢查這兩個函式；C 回顧框裡的版本則要檢查每一個碰到 \texttt{acc}
+的地方。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{\texttt{class} 忘了寫 \texttt{public:}}：\texttt{class} 的
+成員預設是 \texttt{private}，沒寫標籤的話 \texttt{a.deposit(100)} 編譯失
+敗，訊息是 \texttt{'void Account::deposit(int)' is private within this
+context}。 把 \texttt{struct} 改成 \texttt{class} 時常常漏掉。
+\item \textbf{每個成員都配一組 getter 和 setter}：加一個
+\texttt{void setBalance(int x) \{ balance = x; \}}，外面又可以把餘額設成
+$-500$，\texttt{private} 就沒有用了。 只提供有意義的操作（存款、提款），
+不要提供「把成員改成任意值」的函式。
+\end{itemize}
+
+\section{建構子}
+\label{sec:ctor}
+
+成員是 \texttt{private} 之後，外面不能再用 \texttt{\{"Alan", 50\}} 給初值，
+要靠\textbf{建構子}（constructor）。 第~4~章提過，建構子的名稱跟類別相同，
+沒有回傳型別，物件建立時自動呼叫。 一個類別可以有好幾個建構子，跟第~2~章的
+函式多載一樣，依引數決定呼叫哪一個。
+
+下面的 \texttt{Time} 表示一天裡的時刻，不變量是
+$0 \le \texttt{hour} < 24$、$0 \le \texttt{minute} < 60$：
+
+\begin{example}[label=ex:time-ctor]{cpp}{(time\_ctor.cpp) 預設建構子與帶參數的建構子}
+#include <iostream>
+using namespace std;
+
+class Time {
+public:
+    Time() : hour(0), minute(0) {}            // 預設建構子
+    Time(int h, int m) : hour(h), minute(m) {  // 帶參數的建構子
+        normalize();
+    }
+    void add(int minutes) {
+        minute += minutes;
+        normalize();
+    }
+    void print() {
+        cout << (hour < 10 ? "0" : "") << hour << ':'
+             << (minute < 10 ? "0" : "") << minute << '\n';
+    }
+
+private:
+    int hour, minute;    // 不變量：0 <= hour < 24，0 <= minute < 60
+    void normalize() {
+        hour = (hour + minute / 60) % 24;
+        minute %= 60;
+    }
+};
+
+int main() {
+    Time a;
+    Time b(9, 45);
+    Time c(23, 130);
+    a.print();
+    b.print();
+    c.print();
+
+    b.add(30);
+    b.print();
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+00:00 \\
+09:45 \\
+01:10 \\
+10:15 \\
+}
+
+\begin{itemize}
+\item 沒有參數的 \texttt{Time()} 叫\textbf{預設建構子}（default
+constructor）。 \texttt{Time a;} 會用到它，\texttt{vector<Time> v(2);}
+建立兩個元素時也是。
+\item \texttt{Time b(9, 45);} 呼叫 \texttt{Time(int h, int m)}。 也可以寫
+成 \texttt{Time b\{9, 45\};}，效果一樣。
+\item \texttt{Time c(23, 130);} 給的分鐘超過 $60$，建構子呼叫
+\texttt{normalize()} 調整成 \texttt{01:10}。 建構子結束時不變量就成立，之
+後只有 \texttt{add} 會改時間，\texttt{add} 也會呼叫 \texttt{normalize()}。
+（這裡假設傳進來的數字都不是負的。）
+\item \texttt{normalize} 放在 \texttt{private}。 它只是內部用的工具，外面
+不需要呼叫，成員函式也可以是 \texttt{private}。
+\end{itemize}
+
+\subsection{成員初始化列表}
+
+建構子參數列後面、本體前面的 \texttt{: hour(h), minute(m)} 叫\textbf{成員
+初始化列表}（member initializer list）。 物件的成員在建構子本體執行
+\emph{之前}就建立好了，初始化列表決定它們用什麼值建立。 也可以寫成在本
+體裡寫 \texttt{hour = h; minute = m;}。 對 \texttt{int} 來說，兩種寫法
+結果相同。 但有兩種成員一定要用初始化列表：
+\texttt{const} 成員和參考成員。 它們建立之後就不能再指定，只能在建立的
+那一刻給值。
+
+\begin{example}[label=ex:init-list]{cpp}{(init\_list.cpp) const 成員與參考成員}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+class Recorder {
+public:
+    Recorder(int n, vector<string> &out) : id(n), log(out) {}
+    void record(const string &msg) {
+        log.push_back(to_string(id) + ": " + msg);
+    }
+
+private:
+    const int id;              // 建立後不能改
+    vector<string> &log;       // 綁著呼叫者的 vector
+};
+
+int main() {
+    vector<string> log;
+    Recorder r1(1, log), r2(2, log);
+    r1.record("start");
+    r2.record("load");
+    r1.record("stop");
+    for (const string &s : log) {
+        cout << s << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1: start \\
+2: load \\
+1: stop \\
+}
+
+\texttt{r1}、\texttt{r2} 的 \texttt{log} 都綁著 \texttt{main} 的同一個
+\texttt{log}，所以三筆紀錄依序進到同一個 \texttt{vector}。 要是把建構子
+改成在本體裡寫 \texttt{id = n; log = out;}，編譯失敗：
+
+\begin{code}{text}{編譯器的錯誤訊息（節錄）}
+error: uninitialized const member in 'const int' [-fpermissive]
+error: uninitialized reference member in 'class std::vector<std::__cxx11::basic_string<char> >&' [-fpermissive]
+error: assignment of read-only member 'Recorder::id'
+\end{code}
+
+進到本體時，\texttt{id} 和 \texttt{log} 已經建立了，卻沒有給值；本體裡的
+\texttt{id = n} 是指定，\texttt{const} 不能指定。 參考也一樣，第~2~章說
+過參考建立時就要綁定，之後的 \texttt{=} 是改它綁著的那個變數，不是重新綁定。
+
+\texttt{string}、\texttt{vector} 這類成員用初始化列表也比較好：在本體裡
+指定，等於先建一個空的，再指定一次。 所以習慣上一律用初始化列表，本體只
+放建構時要做的其他事（例如 \texttt{normalize()}）。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{寫了建構子，預設建構子就沒了}：一個建構子都沒寫的時候，編譯器
+會自動產生一個什麼都不做的預設建構子。 只要自己寫了任何一個建構子，編譯
+器就不再產生。 把範例裡的 \texttt{Time()} 刪掉，\texttt{Time a;} 和
+\texttt{vector<Time> v(2);} 都編譯失敗：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: no matching function for call to 'Time::Time()'
+\end{code}
+需要的話就自己寫一個預設建構子。
+\item \textbf{\texttt{Time a();}}：想用預設建構子建立 \texttt{a}，多寫了
+括號。 這行會被當成「宣告一個函式 \texttt{a}，沒有參數，回傳
+\texttt{Time}」。 \texttt{g++} 會警告 \texttt{empty parentheses were
+disambiguated as a function declaration}，接著 \texttt{a.print()} 報
+\texttt{request for member 'print' in 'a', which is of non-class type
+'Time()'}。 用預設建構子時不加括號，寫 \texttt{Time a;}，或者寫
+\texttt{Time a\{\};}。
+\item \textbf{以為成員依初始化列表的順序建立}：成員一律依照在類別裡
+\emph{宣告}的順序建立，跟初始化列表怎麼排無關。
+\begin{code}{cpp}{cells 比 rows、cols 先建立（錯誤示範）}
+class Grid {
+public:
+    Grid(int r, int c) : rows(r), cols(c), cells(rows * cols, 0) {}
+private:
+    vector<int> cells;
+    int rows, cols;
+};
+\end{code}
+\texttt{cells} 宣告在前，最先建立，這時 \texttt{rows}、\texttt{cols} 還
+沒有值。 \texttt{-Wall} 會警告 \texttt{'Grid::cols' will be initialized
+after}。 改法是把初始化列表的順序排成跟宣告一樣，或者直接用參數寫
+\texttt{cells(r * c, 0)}。
+\end{itemize}
+
+\section{解構子：自己管理資源的類別}
+\label{sec:dtor}
+
+\textbf{解構子}（destructor）的名稱是 \texttt{\textasciitilde} 加上類別
+名稱，沒有參數，物件銷毀時自動呼叫。 第~4~章說過 RAII 的做法：建構子取得
+資源，解構子釋放資源。 這一節照這個做法寫一個簡化版的 \texttt{vector}：
+建立時給長度，元素初始值是 $0$。 為了看出配置和釋放的時機，建構子和解構子
+各印一行。
+
+\begin{example}[label=ex:int-array]{cpp}{(int\_array.cpp) 建構子 new[]，解構子 delete[]}
+#include <iostream>
+using namespace std;
+
+class IntArray {
+public:
+    IntArray(int n) : len(n), data(new int[n]()) {
+        cout << "配置 " << len << " 個 int" << '\n';
+    }
+    ~IntArray() {
+        delete[] data;
+        cout << "釋放 " << len << " 個 int" << '\n';
+    }
+    int size() {
+        return len;
+    }
+    int get(int i) {
+        return data[i];
+    }
+    void set(int i, int x) {
+        if (i >= 0 && i < len) {
+            data[i] = x;
+        }
+    }
+
+private:
+    int len;
+    int *data;
+};
+
+int sumSquares(int n) {
+    IntArray a(n);
+    for (int i = 0; i < n; i++) {
+        a.set(i, i * i);
+    }
+    int s = 0;
+    for (int i = 0; i < a.size(); i++) {
+        s += a.get(i);
+    }
+    return s;
+}
+
+int main() {
+    cout << sumSquares(4) << '\n';
+    {
+        IntArray b(3);
+        b.set(0, 7);
+        b.set(5, 1);             // 超出範圍，set 不做事
+        cout << b.get(0) << ' ' << b.size() << '\n';
+    }
+    cout << "main 結束" << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+配置 4 個 int \\
+釋放 4 個 int \\
+14 \\
+配置 3 個 int \\
+7 3 \\
+釋放 3 個 int \\
+main 結束 \\
+}
+
+\begin{itemize}
+\item 用 \texttt{IntArray} 的人不會寫到 \texttt{new} 或 \texttt{delete}。
+\texttt{sumSquares} 結束時 \texttt{a} 銷毀，解構子把記憶體還回去，所以
+「釋放 4 個 int」印在 \texttt{14} 之前：\texttt{return s;} 先算好回傳值，
+接著銷毀區域變數，最後 \texttt{main} 才印出結果。
+\item \texttt{data} 是 \texttt{private}，外面拿不到這個指標，也就沒辦法
+\texttt{delete} 它，或在物件銷毀後還留著它。
+\item \texttt{set} 會檢查下標，越界時什麼都不做；\texttt{get} 沒有檢查，
+跟 \texttt{vector} 的 \texttt{[]} 一樣。
+\item 第~4~章的 \texttt{leak.cpp} 有好幾個 \texttt{return}，其中一個漏了
+\texttt{delete[]}。 寫成類別之後，釋放只寫在解構子裡這一個地方。
+\end{itemize}
+
+\subsection{複製會出問題}
+
+\texttt{IntArray} 還有一個漏洞。 把範例~\ref{ex:int-array} 的
+\texttt{main} 換成下面這段，複製一個 \texttt{IntArray}：
+
+\begin{code}{cpp}{複製擁有原始指標的物件（錯誤示範）}
+int main() {
+    IntArray a(3);
+    IntArray b = a;          // 複製：b.data 和 a.data 是同一個位址
+    b.set(0, 99);
+    cout << a.get(0) << '\n';
+    return 0;
+}                            // b、a 各 delete[] 一次同一塊記憶體
+\end{code}
+
+\begin{code}{text}{執行結果（本書測試的環境）}
+配置 3 個 int
+99
+釋放 3 個 int
+free(): double free detected in tcache 2
+\end{code}
+
+\texttt{IntArray b = a;} 用的是編譯器自動產生的\textbf{複製建構子}（copy
+constructor），它把成員一個一個複製過去。 \texttt{data} 是指標，複製的是
+位址，不是陣列，所以 \texttt{a} 和 \texttt{b} 共用同一塊記憶體：改
+\texttt{b} 的元素，\texttt{a.get(0)} 也變成 $99$。 配置只發生一次，
+\texttt{main} 結束時卻有兩個解構子：\texttt{b} 先釋放，\texttt{a} 再釋放
+同一塊，程式在這裡中止。 用 ASan 跑，報的是 \texttt{attempting
+double-free}。
+
+已經存在的兩個物件之間寫 \texttt{b = a;}，用的是自動產生的\textbf{複製指定
+運算子}（copy assignment operator），一樣只複製指標，問題相同。
+
+要讓複製正確，可以自己寫複製建構子和複製指定運算子，配置一塊新的陣列再把
+元素抄過去。 一個類別需要自己寫解構子時，通常也需要自己寫這兩個，這叫
+\textbf{三法則}（rule of three）；再加上第~4~章的移動（移動建構子和移動
+指定運算子）共五個，叫\textbf{五法則}（rule of five）。 本書不細談這些
+函式的寫法，建議的做法是成員不要用原始指標，改用 \texttt{vector}
+或 \texttt{unique\_ptr}。
+
+\begin{code}{cpp}{(copy\_fixed.cpp) 成員改用 vector（節錄）}
+class IntArray {
+public:
+    IntArray(int n) : data(n) {}
+    int size() {
+        return (int)data.size();
+    }
+    // get 不變；set 裡的 len 改成 size()
+
+private:
+    vector<int> data;        // 不必寫解構子
+};
+\end{code}
+
+用同樣的 \texttt{main}，最後一行改成印 \texttt{a.get(0)} 和
+\texttt{b.get(0)}，輸出 \texttt{0 99}。 自動產生的複製建構子還是逐一複製
+成員，但複製 \texttt{vector} 會複製所有元素，所以 \texttt{b} 有自己的一份。
+銷毀時兩個 \texttt{vector} 各自釋放自己的記憶體，\texttt{IntArray} 不用寫
+解構子。 自動產生的移動也會移動 \texttt{data}，所以這個類別可以直接用
+\texttt{std::move}。
+
+成員改用 \texttt{unique\_ptr} 的話，因為 \texttt{unique\_ptr} 不能複製，
+整個類別也不能複製，\texttt{IntArray b = a;} 編譯失敗（\texttt{use of
+deleted function}），但可以移動。 編譯失敗比執行時重複釋放容易處理。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{傳值傳進函式}：\texttt{void print(IntArray a)} 每次呼叫都會
+複製一個 \texttt{IntArray}。 用原始指標的版本，函式結束時複本的解構子就把
+陣列釋放了，呼叫端的物件從此懸置。 傳類別物件時照第~2~章的原則用
+\texttt{const} 參考，就不會複製（\texttt{const} 參考要搭配
+第~\ref{sec:this-const}~節的 \texttt{const} 成員函式）。
+\item \textbf{解構子用錯 \texttt{delete}}：建構子用 \texttt{new int[n]}，
+解構子就要用 \texttt{delete[]}。 寫成 \texttt{delete data;} 是第~4~章說
+的配錯對。
+\item \textbf{以為解構子要自己呼叫}：解構子在物件銷毀時自動執行，不要寫
+\texttt{a.\textasciitilde IntArray();}。 自己呼叫一次，離開區塊時又自動
+呼叫一次，又是重複釋放。
+\end{itemize}
+
+\section{\texttt{this} 與 \texttt{const} 成員函式}
+\label{sec:this-const}
+
+成員函式裡寫 \texttt{balance}，怎麼知道是哪個物件的？ 每個成員函式都有一
+個看不到的參數 \texttt{this}，是指向呼叫物件的指標。 \texttt{a.deposit(100)}
+呼叫時，\texttt{this} 就是 \texttt{\&a}，跟 C 版本的
+\texttt{deposit(\&acc, 100)} 做的事一樣。 函式裡的 \texttt{balance} 就是
+\texttt{this->balance} 的簡寫。
+
+平常不用寫 \texttt{this}，有兩種情況會用到：
+
+\begin{itemize}
+\item 參數名稱跟成員相同時，\texttt{balance} 指的是參數，要寫
+\texttt{this->balance} 才是成員。 初始化列表不受影響：
+\texttt{owner(owner)} 括號外的是成員，括號內的是參數。
+\item 回傳 \texttt{*this}，也就是呼叫的物件本身。 回傳型別寫成參考，呼叫
+就能串起來，例如 \texttt{a.deposit(100).deposit(50)}。 第~2~章的
+\texttt{cout <<} 能串下去也是這個道理。
+\end{itemize}
+
+\subsection{\texttt{const} 成員函式}
+
+第~2~章說過，只讀的參數用 \texttt{const} 參考。 對類別物件這樣做，會遇到
+一個問題：
+
+\begin{code}{cpp}{透過 const 參考呼叫 getBalance（編譯失敗）}
+void report(const Account &a) {
+    cout << a.getBalance() << '\n';
+}
+\end{code}
+
+\begin{code}{text}{編譯器的錯誤訊息}
+error: passing 'const Account' as 'this' argument discards qualifiers [-fpermissive]
+\end{code}
+
+\texttt{a} 是 \texttt{const}，但編譯器不知道 \texttt{getBalance} 會不會
+改它。 訊息裡的 \texttt{this argument} 指的就是 \texttt{this} 這個看不到
+的參數：\texttt{a} 是 \texttt{const}，\texttt{getBalance} 的
+\texttt{this} 卻不是指向 \texttt{const} 的指標，傳進去會丟掉
+\texttt{const}。
+
+在參數列後面加 \texttt{const}，宣告這個函式不會修改物件，就是\textbf{const
+成員函式}。 這時 \texttt{this} 是指向 \texttt{const} 的指標，
+\texttt{const} 物件和 \texttt{const} 參考都能呼叫它：
+
+\begin{example}[label=ex:this-const]{cpp}{(this\_const.cpp) this、串接呼叫與 const 成員函式}
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Account {
+public:
+    Account(const string &owner) : owner(owner), balance(0) {}
+
+    Account &deposit(int amount) {
+        if (amount > 0) {
+            this->balance += amount;   // 等於 balance += amount
+        }
+        return *this;                  // 回傳呼叫它的物件本身
+    }
+    int getBalance() const {
+        return balance;
+    }
+    const string &getOwner() const {
+        return owner;
+    }
+
+private:
+    string owner;
+    int balance;
+};
+
+void report(const Account &a) {
+    cout << a.getOwner() << ' ' << a.getBalance() << '\n';
+}
+
+int main() {
+    Account a("Ada");
+    a.deposit(100).deposit(50);
+    report(a);
+
+    const Account b("Alan");
+    report(b);
+    // b.deposit(10);                  // 編譯失敗：b 是 const
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Ada 150 \\
+Alan 0 \\
+}
+
+\begin{itemize}
+\item \texttt{deposit} 回傳 \texttt{Account \&}，\texttt{a.deposit(100)}
+的結果就是 \texttt{a} 本身，可以接著 \texttt{.deposit(50)}。 回傳型別如
+果寫成 \texttt{Account}（沒有 \texttt{\&}），第二次 \texttt{deposit} 存進
+的是一個暫時的複本，\texttt{a} 只多了 $100$。
+\item \texttt{getBalance} 和 \texttt{getOwner} 不改物件，宣告成
+\texttt{const}。 \texttt{report} 收 \texttt{const} 參考，只能呼叫這兩個。
+\item \texttt{getOwner} 回傳 \texttt{const string \&}，不複製字串，呼叫端
+也不能透過它改 \texttt{owner}。
+\item \texttt{const Account b} 是 \texttt{const} 物件，建立之後只能呼叫
+\texttt{const} 成員函式，\texttt{b.deposit(10)} 會出現跟上面一樣的錯誤訊
+息。
+\end{itemize}
+
+不改物件的成員函式都要加上 \texttt{const}。 漏加的話，自己寫的
+時候不會發現，等到別人用 \texttt{const} 參考傳你的物件才會編譯失敗。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{參數名稱跟成員相同}：
+\begin{code}{cpp}{參數蓋掉成員（錯誤示範）}
+void deposit(int balance) {
+    balance += balance;     // 兩個都是參數
+}
+\end{code}
+函式裡的 \texttt{balance} 都是參數，成員沒有改到。 \texttt{-Wall -Wextra}
+不會警告，要另外加 \texttt{-Wshadow} 才會看到 \texttt{declaration of
+'balance' shadows a member of 'Account'}。 參數換個名字，或者寫
+\texttt{this->balance += balance;}。
+\item \textbf{在 \texttt{const} 成員函式裡改成員}：在 \texttt{getBalance()
+const} 裡寫 \texttt{balance = 0;}，報 \texttt{assignment of member
+'Account::balance' in read-only object}。 要改成員的函式就不要宣告成
+\texttt{const}。
+\item \textbf{\texttt{const} 函式回傳成員的一般參考}：
+\texttt{string \&getOwner() const \{ return owner; \}} 編譯失敗，訊息是
+\texttt{binding reference of type 'std::string\&' ... discards
+qualifiers}。 \texttt{const} 函式裡 \texttt{owner} 是 \texttt{const}，不
+能綁到非 \texttt{const} 參考上；回傳型別要寫 \texttt{const string \&}。
+\item \textbf{\texttt{const} 寫錯位置}：\texttt{const int getBalance()} 的
+\texttt{const} 修飾的是回傳值，這不是 \texttt{const} 成員函式。
+\texttt{const} 要寫在參數列的右括號後面。
+\end{itemize}
+
+\section{\texttt{static} 成員}
+\label{sec:static-member}
+
+一般的成員是每個物件各有一份。 加上 \texttt{static} 的成員則屬於整個類別，
+所有物件共用一份，不建立物件也存在。 下面的 \texttt{Ticket} 用
+\texttt{static} 成員發號碼，並記錄目前有幾張票還在：
+
+\begin{example}[label=ex:static-member]{cpp}{(static\_member.cpp) 所有物件共用的計數}
+#include <iostream>
+using namespace std;
+
+class Ticket {
+public:
+    Ticket() : id(nextId) {
+        nextId++;
+        alive++;
+    }
+    ~Ticket() {
+        alive--;
+    }
+    int getId() const {
+        return id;
+    }
+    static int aliveCount() {
+        return alive;
+    }
+
+private:
+    int id;                        // 每張票各有一個
+    inline static int nextId = 1;  // 整個類別共用一個
+    inline static int alive = 0;
+};
+
+int main() {
+    Ticket a, b;
+    cout << a.getId() << ' ' << b.getId() << ' ' << Ticket::aliveCount() << '\n';
+    {
+        Ticket c;
+        cout << c.getId() << ' ' << Ticket::aliveCount() << '\n';
+    }
+    Ticket d;
+    cout << d.getId() << ' ' << Ticket::aliveCount() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 2 2 \\
+3 3 \\
+4 3 \\
+}
+
+\begin{itemize}
+\item \texttt{nextId} 和 \texttt{alive} 只有一份。 每建立一張票，建構子
+把目前的 \texttt{nextId} 給這張票當 \texttt{id}，再把 \texttt{nextId} 加
+一；\texttt{c} 銷毀時解構子把 \texttt{alive} 減一，所以 \texttt{d} 拿到
+$4$，但還在的票是 $3$ 張。 這跟第~4~章 \texttt{nextTicket} 裡的
+\texttt{static} 區域變數是同一個想法，只是放在類別裡。
+\item \texttt{static} 成員變數要在類別裡寫 \texttt{inline static}，才能直接
+給初始值（C++17 起）。
+\item \texttt{aliveCount} 是 \texttt{static} 成員函式，用
+\texttt{Ticket::aliveCount()} 呼叫，不需要物件。 它沒有 \texttt{this}，所
+以只能用 \texttt{static} 成員，不能用 \texttt{id}。
+\end{itemize}
+
+\texttt{static} 成員適合放跟個別物件無關、整個類別共用的東西，例如計數、
+共用的設定值。 不要拿它來放每個物件應該各有一份的資料。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{漏了 \texttt{inline}}：在類別裡寫
+\texttt{static int alive = 0;}，編譯失敗：\texttt{ISO C++ forbids in-class
+initialization of non-const static member 'Ticket::alive'}。 C++17 以前的
+寫法是在類別裡只寫 \texttt{static int alive;}，再到類別外面寫一行定義
+\texttt{int Ticket::alive = 0;}。 只寫了類別裡那行、忘了外面那行，編譯會過，
+連結時報 \texttt{undefined reference to `Ticket::alive'}。
+\item \textbf{\texttt{static} 成員函式用了一般成員}：在 \texttt{aliveCount}
+裡寫 \texttt{return id;}，報 \texttt{invalid use of member 'Ticket::id' in
+static member function}。 沒有物件，就不知道是哪一張票的 \texttt{id}。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch5-exercises}
+
+\begin{drills}[label=drills:ch5]
+\item 預測下面程式的輸出。
+\begin{code}{cpp}{練習：建構子、串接與解構子}
+#include <iostream>
+using namespace std;
+
+class Box {
+public:
+    Box() : w(1), h(1) { cout << "A "; }
+    Box(int s) : w(s), h(s) { cout << "B "; }
+    Box(int w, int h) : w(w), h(h) { cout << "C "; }
+    ~Box() { cout << "~" << w * h << ' '; }
+    Box &grow(int d) {
+        w += d;
+        h += d;
+        return *this;
+    }
+    int area() const { return w * h; }
+
+private:
+    int w, h;
+};
+
+int main() {
+    Box a;
+    Box b(4);
+    Box c(2, 5);
+    cout << '\n';
+    cout << a.grow(1).grow(1).area() << ' ' << c.area() << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式編譯失敗，\texttt{g++} 報了五個錯誤。 找出原因並改正，讓 \texttt{show(p)} 印出
+\texttt{4 6}，\texttt{q} 是原點 $(0, 0)$。
+\begin{code}{cpp}{練習：找錯}
+#include <iostream>
+using namespace std;
+
+class Point {
+public:
+    Point(int x, int y) : x(x), y(y) {}
+    int getX() { return x; }
+    void move(int dx, int dy) const {
+        x += dx;
+        y += dy;
+    }
+
+private:
+    int x, y;
+};
+
+void show(const Point &p) {
+    cout << p.getX() << ' ' << p.y << '\n';
+}
+
+int main() {
+    Point p(1, 2);
+    p.move(3, 4);
+    show(p);
+    Point q;
+    return 0;
+}
+\end{code}
+\item 寫一個類別 \texttt{Stats}，記錄加進來的整數，提供這些成員函式：
+\texttt{add(x)} 加入一個整數；\texttt{count()}、\texttt{min()}、
+\texttt{max()} 回傳個數、最小值、最大值；\texttt{mean()} 回傳平均
+（\texttt{double}）。 不要把所有數字存起來，只存需要的量。 \texttt{main}
+讀整數直到輸入結束，輸出個數、最小值、最大值、平均，以一個空白隔開；沒有
+任何輸入時輸出 \texttt{沒有資料}。 輸入 \texttt{7 -2 10 5} 時應輸出
+\texttt{4 -2 10 5}。 哪些函式應該是 \texttt{const}？
+\item 寫一個 \texttt{Account}，建構子收擁有者的名字。 每個帳戶有一個編號，
+從 $1$ 開始依建立順序編，建立後不能改；另外用 \texttt{static} 成員記錄
+總共開過幾個帳戶（銷毀的也算）。 提供 \texttt{getId()}、
+\texttt{getOwner()} 和 \texttt{static} 的 \texttt{openedCount()}。 寫完之
+後試試 \texttt{a = b;}，會發生什麼事？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出三行：\texttt{A B C }、\texttt{9 10}、
+\texttt{\textasciitilde 10 \textasciitilde 16 \textasciitilde 9 }（最後一
+行沒有換行）。 \texttt{a}、\texttt{b}、\texttt{c} 依序呼叫三個不同的建構
+子。 \texttt{grow} 回傳 \texttt{*this} 的參考，兩次 \texttt{grow(1)} 都
+作用在 \texttt{a} 上，邊長從 $1$ 變成 $3$，面積 $9$。 \texttt{main} 結束
+時以相反順序銷毀：\texttt{c}（$2 \times 5$）、\texttt{b}（$4 \times 4$）、
+\texttt{a}（$3 \times 3$）。
+\item 五個錯誤訊息來自四個問題：
+(1) \texttt{move} 會改 \texttt{x}、\texttt{y}，不能是 \texttt{const}，報
+兩次 \texttt{assignment of member ... in read-only object}；
+(2) \texttt{getX} 沒有 \texttt{const}，\texttt{show} 透過 \texttt{const}
+參考呼叫它，報 \texttt{passing 'const Point' as 'this' argument discards
+qualifiers}；
+(3) \texttt{p.y} 是 \texttt{private}，\texttt{show} 不是成員函式，不能存
+取；
+(4) 寫了帶參數的建構子，就沒有預設建構子，\texttt{Point q;} 報
+\texttt{no matching function for call to 'Point::Point()'}。
+改法：拿掉 \texttt{move} 的 \texttt{const}；\texttt{getX} 加上
+\texttt{const}；新增一個 \texttt{int getY() const \{ return y; \}}，
+\texttt{show} 改用 \texttt{p.getY()}，不要把 \texttt{y} 改成
+\texttt{public}；加一個預設建構子 \texttt{Point() : x(0), y(0) \{\}}。
+改完後 \texttt{show(p)} 印出 \texttt{4 6}，\texttt{show(q)} 印出
+\texttt{0 0}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答}
+#include <iostream>
+using namespace std;
+
+class Stats {
+public:
+    void add(int x) {
+        if (n == 0 || x < lo) {
+            lo = x;
+        }
+        if (n == 0 || x > hi) {
+            hi = x;
+        }
+        sum += x;
+        n++;
+    }
+    int count() const { return n; }
+    int min() const { return lo; }
+    int max() const { return hi; }
+    double mean() const { return n == 0 ? 0 : (double)sum / n; }
+
+private:
+    int n = 0;
+    long long sum = 0;
+    int lo = 0, hi = 0;
+};
+
+int main() {
+    Stats s;
+    int x;
+    while (cin >> x) {
+        s.add(x);
+    }
+    if (s.count() == 0) {
+        cout << "沒有資料" << '\n';
+        return 0;
+    }
+    cout << s.count() << ' ' << s.min() << ' ' << s.max() << ' ' << s.mean() << '\n';
+    return 0;
+}
+\end{code}
+只要存個數、總和、目前的最小值和最大值。 除了 \texttt{add}，其他四個函式
+都不改物件，宣告成 \texttt{const}。 \texttt{n == 0} 時 \texttt{lo}、
+\texttt{hi} 沒有意義，所以第一個數字一定要直接存進去；\texttt{main} 也先
+檢查 \texttt{count()} 再印。 總和用 \texttt{long long}，避免很多個大數字
+相加時溢位。
+\item 一種寫法：
+\begin{code}{cpp}{練習 4 參考解答}
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Account {
+public:
+    Account(const string &owner) : id(opened + 1), owner(owner) {
+        opened++;
+    }
+    int getId() const { return id; }
+    const string &getOwner() const { return owner; }
+    static int openedCount() { return opened; }
+
+private:
+    const int id;
+    string owner;
+    inline static int opened = 0;
+};
+
+int main() {
+    Account a("Ada");
+    Account b("Alan");
+    cout << a.getId() << ' ' << a.getOwner() << '\n';
+    cout << b.getId() << ' ' << b.getOwner() << '\n';
+    {
+        Account c("Grace");
+        cout << c.getId() << ' ' << Account::openedCount() << '\n';
+    }
+    cout << Account::openedCount() << '\n';
+    return 0;
+}
+\end{code}
+輸出 \texttt{1 Ada}、\texttt{2 Alan}、\texttt{3 3}、\texttt{3}。
+\texttt{id} 是 \texttt{const} 成員，只能在初始化列表給值。
+\texttt{opened} 只增不減，所以 \texttt{c} 銷毀後還是 $3$。
+加上 \texttt{a = b;} 會編譯失敗：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: use of deleted function 'Account& Account::operator=(const Account&)'
+error: non-static const member 'const int Account::id', cannot use default assignment operator
+\end{code}
+自動產生的複製指定運算子要逐一指定成員，\texttt{const} 的 \texttt{id} 不
+能指定，所以編譯器不產生它。 這也符合需求：兩個帳戶的編號本來就不該變成
+一樣。 \texttt{Account c = a;} 這種複製建構還是編得過，\texttt{c} 會拿到跟
+\texttt{a} 一樣的編號；要連這個也禁止，得自己處理複製建構子，本書不細談。
+\end{enumerate}
