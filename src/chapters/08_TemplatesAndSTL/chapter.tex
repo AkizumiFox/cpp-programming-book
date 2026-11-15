@@ -1,0 +1,1236 @@
+\chapter{模板與 STL 容器}
+\label{ch:templates-stl}
+
+第~3~章說 \texttt{vector<int>} 的角括號是「模板」，當時只要把
+\texttt{vector<int>} 整個當成一個型別名稱。 這一章先自己寫模板：同一份
+函式或類別，交給編譯器替 \texttt{int}、\texttt{double}、\texttt{string}
+各產生一份。 看懂模板之後，標準函式庫的宣告和那些很長的錯誤訊息也就讀得
+懂了。
+
+後半章介紹解題和資料結構最常用的容器：\texttt{pair}、\texttt{set} 與
+\texttt{map}、\texttt{unordered\_set} 與 \texttt{unordered\_map}、
+\texttt{stack}、\texttt{queue}、\texttt{deque}，以及
+\texttt{priority\_queue}。 每一種都說明它解決什麼問題、各個操作要花多少
+時間，以及常見的錯誤。 這些容器在標準函式庫裡合稱 STL（Standard
+Template Library）。 走訪一律用範圍 \texttt{for}，迭代器和演算法留到
+第~9~章。
+
+\section{函式模板}
+\label{sec:func-template}
+
+\begin{crecap}[巨集與 \texttt{void *}]
+C 要寫一個「什麼型別都能用」的函式，常見的做法有兩種。 第一種是巨集：
+
+\begin{code}{c}{用巨集寫 MAX}
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+int i = 5, j = 3;
+int m = MAX(i++, j);       // m 是 6，i 變成 7
+\end{code}
+
+巨集只是文字替換，展開後是 \texttt{((i++) > (j) ? (i++) : (j))}，
+\texttt{i++} 執行了兩次，所以 \texttt{m} 是 $6$、\texttt{i} 是 $7$，不是
+預期的 $5$ 和 $6$。 巨集也不檢查型別，引數是什麼都照樣展開。
+
+第二種是 \texttt{void *}，例如 \texttt{qsort}。 比較函式收兩個
+\texttt{const void *}，自己轉回真正的型別：
+
+\begin{code}{c}{qsort 的比較函式用錯型別}
+int cmpInt(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+
+double d[] = {2.5, 1.5, 3.5, 0.5};
+qsort(d, 4, sizeof(double), cmpInt);   // 比較函式是給 int 用的
+\end{code}
+
+\texttt{gcc -Wall -Wextra} 沒有任何警告。 \texttt{cmpInt} 把每個
+\texttt{double} 的前 $4$ 個位元組當成 \texttt{int} 來比，在本書測試的環境
+下，排完還是 \texttt{2.5 1.5 3.5 0.5}，完全沒排好。 轉成 \texttt{void *}
+之後，編譯器就不知道原本是什麼型別了。
+\end{crecap}
+
+C++ 的做法是\textbf{函式模板}（function template）：把型別也當成一個參
+數，寫一份程式，讓編譯器依呼叫時的引數型別產生對應的函式。
+
+\begin{example}[label=ex:max-template]{cpp}{(max\_template.cpp) 函式模板 maxOf}
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename T>
+T maxOf(T a, T b) {
+    return a > b ? a : b;
+}
+
+int main() {
+    int i = 5, j = 3;
+    int m = maxOf(i++, j);
+    cout << m << ' ' << i << '\n';
+
+    cout << maxOf(2.5, 1.5) << '\n';
+    string a = "apple", b = "banana";
+    cout << maxOf(a, b) << '\n';
+    cout << maxOf<double>(3, 2.5) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+5 6 \\
+2.5 \\
+banana \\
+3 \\
+}
+
+\begin{itemize}
+\item \texttt{template <typename T>} 宣告一個型別參數 \texttt{T}，下面的函式
+裡 \texttt{T} 就當成一個型別來用。 \texttt{typename} 也可以寫成
+\texttt{class}，意思完全一樣，標準函式庫的宣告裡兩種都會看到。
+\item 呼叫 \texttt{maxOf(i++, j)} 時，編譯器從引數推斷出 \texttt{T} 是
+\texttt{int}，產生一個 \texttt{int maxOf(int a, int b)}。 這個步驟叫
+\textbf{實例化}（instantiation）。 \texttt{maxOf(2.5, 1.5)} 和
+\texttt{maxOf(a, b)} 又各產生一份 \texttt{double} 和 \texttt{string} 的
+版本。 跟第~2~章的多載一樣，最後是幾個不同的函式，只是不用自己寫。
+\item \texttt{maxOf} 是真的函式，\texttt{i++} 只執行一次，輸出
+\texttt{5 6}。 每份實例化出來的函式也都照一般函式檢查型別，不會發生
+\texttt{qsort} 那種把 \texttt{double} 當 \texttt{int} 比的事。
+\item \texttt{maxOf<double>(3, 2.5)} 在函式名稱後面直接寫出 \texttt{T}，
+不用推斷。 \texttt{3} 照一般的規則轉成 \texttt{double}。
+\end{itemize}
+
+模板對 \texttt{T} 的要求，就是函式本體裡用到的操作。 \texttt{maxOf} 用了
+\texttt{>}，\texttt{T} 就要能用 \texttt{>} 比較。 第~6~章替 \texttt{Fraction} 寫了比較運算子
+之後 \texttt{sort} 就能排序，也是這個道理：\texttt{sort} 是一個函式模板，
+只要求元素能用 \texttt{<} 比較。 它不需要 \texttt{qsort} 的
+\texttt{void *} 和比較函式，比較時的型別在編譯時就確定了。
+
+標準函式庫已經有 \texttt{maxOf} 的正式版本：\texttt{<algorithm>} 裡的
+\texttt{max(a, b)} 和 \texttt{min(a, b)}，本章後面的範例會直接用。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{兩個引數推斷出不同的型別}：\texttt{maxOf(3, 2.5)} 編譯失
+敗。 第一個引數說 \texttt{T} 是 \texttt{int}，第二個說是 \texttt{double}，
+編譯器不會替你挑：
+\begin{code}{text}{編譯器的錯誤訊息（節錄）}
+error: no matching function for call to 'maxOf(int, double)'
+note:   deduced conflicting types for parameter 'T' ('int' and 'double')
+\end{code}
+寫成 \texttt{maxOf<double>(3, 2.5)} 或 \texttt{maxOf(3.0, 2.5)}。
+\texttt{std::max(3, 2.5)} 也是同樣的錯誤。
+\item \textbf{型別不支援函式裡用到的操作}：對兩個沒有 \texttt{>} 的
+\texttt{Point} 呼叫 \texttt{maxOf}，錯誤訊息分成兩段：
+\begin{code}{text}{編譯器的錯誤訊息（節錄）}
+In instantiation of 'T maxOf(T, T) [with T = Point]':
+  required from here
+error: no match for 'operator>' (operand types are 'Point' and 'Point')
+\end{code}
+\texttt{In instantiation of} 說的是「替 \texttt{T = Point} 實例化時出了
+錯」，\texttt{required from here} 指出是哪一行呼叫造成的，最後一行才是真
+正的原因。 錯誤位置指著模板裡面，問題卻多半在呼叫端傳進去的型別。
+\item \textbf{傳兩個字串常數}：\texttt{maxOf("apple", "banana")} 的
+\texttt{T} 推斷成 \texttt{const char *}，\texttt{>} 比的是兩個位址，不是
+內容（跟第~3~章 C 回顧框裡 \texttt{a == "Ada"} 的問題一樣）。 編譯沒有警告，在本
+書測試的環境下印出 \texttt{apple}。 先轉成 \texttt{string} 再比。
+\item \textbf{把模板的定義放在另一個 \texttt{.cpp} 檔}：照 C 的習慣，標頭
+檔只放 \texttt{maxOf} 的宣告，定義寫在 \texttt{maxof.cpp}，分開編譯後連結
+失敗，報 \texttt{undefined reference to `int maxOf<int>(int, int)'}。 編譯
+\texttt{main.cpp} 時看不到模板的本體，就沒辦法實例化。 模板要整個寫在標
+頭檔裡。
+\end{itemize}
+
+\section{類別模板與 \texttt{pair}}
+\label{sec:class-template}
+
+類別也可以有型別參數。 第~7~章的 \texttt{Stack} 只能放 \texttt{int}，把
+\texttt{int} 換成 \texttt{T}，就是一個什麼都能放的堆疊：
+
+\begin{example}[label=ex:stack-template]{cpp}{(stack\_template.cpp) 類別模板 Stack<T>}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+template <typename T>
+class Stack {
+public:
+    void push(const T &x) { data.push_back(x); }
+    void pop() { data.pop_back(); }
+    const T &top() const { return data.back(); }
+    bool empty() const { return data.empty(); }
+    int size() const { return (int)data.size(); }
+
+private:
+    vector<T> data;
+};
+
+int main() {
+    Stack<int> s;
+    s.push(1);
+    s.push(2);
+    s.push(3);
+    s.pop();
+    cout << s.top() << ' ' << s.size() << '\n';
+
+    Stack<string> words;
+    words.push("hello");
+    words.push("world");
+    while (!words.empty()) {
+        cout << words.top() << '\n';
+        words.pop();
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+2 2 \\
+world \\
+hello \\
+}
+
+\begin{itemize}
+\item 類別前面加 \texttt{template <typename T>}，類別裡就可以用
+\texttt{T}。 \texttt{push} 的參數是 \texttt{const T \&}，因為 \texttt{T}
+可能是 \texttt{string} 這種大型別，照第~2~章的原則用 \texttt{const} 參考。
+\item 使用時要在角括號寫出 \texttt{T}：\texttt{Stack<int>}、
+\texttt{Stack<string>}。 \texttt{Stack<int>} 和 \texttt{Stack<string>} 是
+兩個不同的型別，彼此不能指定。
+\end{itemize}
+
+這就是你從第~3~章開始用的 \texttt{vector}：標準函式庫裡有一份
+\texttt{vector} 的類別模板，寫 \texttt{vector<int>} 時，編譯器替
+\texttt{int} 實例化一份。 \texttt{v.push\_back(x)}、\texttt{v.size()} 都是
+那份模板的成員函式。
+
+\subsection{讀懂標準函式庫的宣告}
+
+\texttt{vector} 在標準裡的宣告大致是：
+
+\begin{code}{cpp}{vector 的宣告（簡化）}
+template <class T, class Allocator = allocator<T>>
+class vector;
+\end{code}
+
+它其實有兩個型別參數。 第二個 \texttt{Allocator} 決定記憶體怎麼配置，有
+預設值（跟第~2~章的預設引數一樣），平常不用寫。 所以錯誤訊息裡的 \texttt{vector<int>} 常常寫成
+\texttt{std::vector<int, std::allocator<int> >}，第~3~章的錯誤訊息就是這
+樣。 對 \texttt{vector<int>} 呼叫 \texttt{push\_back("hi")}，錯誤訊息裡有
+這樣一行：
+
+\begin{code}{text}{編譯器的錯誤訊息（節錄）}
+note: candidate: 'void std::vector<_Tp, _Alloc>::push_back(const value_type&) [with _Tp = int; _Alloc = std::allocator<int>; value_type = int]' (near match)
+\end{code}
+
+\texttt{\_Tp} 和 \texttt{\_Alloc} 是函式庫原始碼裡給型別參數取的名字，方
+括號裡列出這次實例化時它們各是什麼。 \texttt{value\_type} 是容器裡的元素
+型別。 所以這行的意思是「\texttt{push\_back} 要一個 \texttt{const int \&}」，
+傳進去的卻是字串常數。 另外，錯誤訊息裡的 \texttt{std::\_\_cxx11::basic\_string<char>}
+就是 \texttt{string}。
+
+\subsection{\texttt{pair} 與結構化綁定}
+
+標準函式庫裡最簡單的類別模板是 \texttt{pair}（在 \texttt{<utility>} 裡）：
+\texttt{pair<T, U>} 把兩個值綁在一起，分別叫 \texttt{first} 和
+\texttt{second}。 需要「名字和分數」「座標 $(x, y)$」這種兩個一組的資料，
+又不想為它寫一個 \texttt{struct} 時，就用 \texttt{pair}。 後面的
+\texttt{map} 也用它來放「鍵和值」。
+
+\begin{example}[label=ex:pair]{cpp}{(pair\_demo.cpp) pair、結構化綁定與排序}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
+using namespace std;
+
+pair<int, int> minMax(const vector<int> &v) {
+    int lo = v[0], hi = v[0];
+    for (int x : v) {
+        lo = min(lo, x);
+        hi = max(hi, x);
+    }
+    return {lo, hi};
+}
+
+int main() {
+    pair<string, int> p = {"Ada", 95};
+    cout << p.first << ' ' << p.second << '\n';
+    p.second += 3;
+
+    auto [name, score] = p;
+    cout << name << ' ' << score << '\n';
+
+    auto [lo, hi] = minMax({3, 9, -2, 7});
+    cout << lo << ' ' << hi << '\n';
+
+    vector<pair<int, string>> v = {{88, "Grace"}, {95, "Ada"}, {88, "Alan"}};
+    sort(v.begin(), v.end());
+    for (const auto &[s, n] : v) {
+        cout << s << ' ' << n << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Ada 95 \\
+Ada 98 \\
+-2 9 \\
+88 Alan \\
+88 Grace \\
+95 Ada \\
+}
+
+\begin{itemize}
+\item \texttt{pair<string, int> p = \{"Ada", 95\};} 用大括號給兩個值。
+\texttt{p.first}、\texttt{p.second} 是一般的成員變數，可以直接讀寫。
+\item 函式要回傳兩個值，C 的做法是多傳兩個指標參數；C++ 可以回傳一個
+\texttt{pair}，\texttt{return \{lo, hi\};} 會自動建立
+\texttt{pair<int, int>}。
+\item \texttt{auto [name, score] = p;} 叫\textbf{結構化綁定}（structured
+binding，C++17），把 \texttt{pair} 拆成兩個有名字的變數，比
+\texttt{p.first}、\texttt{p.second} 好讀。 這樣寫的 \texttt{name}、
+\texttt{score} 是複本，跟 \texttt{auto x = p;} 一樣。 要直接改
+\texttt{p} 就寫 \texttt{auto \&[name, score] = p;}，只讀不複製就寫
+\texttt{const auto \&[...]}，選法跟第~3~章範圍 \texttt{for} 的表格相同。
+\item \texttt{pair} 已經定義好比較運算子：先比 \texttt{first}，相同再比
+\texttt{second}，跟字串的字典順序一樣。 所以 \texttt{sort} 之後分數由小
+到大，同分的照名字排。 想讓 \texttt{sort} 照某個欄位排，把那個欄位放在
+\texttt{first} 就好。
+\end{itemize}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒寫型別參數}：\texttt{Stack s;} 報 \texttt{class template
+argument deduction failed}。 C++17 可以從建構子的引數推斷型別參數，例如
+\texttt{vector v = \{1, 2, 3\};} 推斷成 \texttt{vector<int>}，但
+\texttt{Stack s;} 沒有引數可以推斷。 本書一律寫出型別參數。
+\item \textbf{在類別外面定義成員函式，少了模板的部分}：類別裡只寫
+\texttt{void push(const T \&x);}，外面寫
+\texttt{void Stack::push(const T \&x) \{ ... \}}，報
+\texttt{'template<class T> class Stack' used without template arguments}
+和 \texttt{'T' does not name a type}。 要寫成
+\texttt{template <typename T> void Stack<T>::push(const T \&x) \{ ... \}}。
+模板的成員函式通常直接寫在類別裡面，省掉這一長串。
+\item \textbf{改了結構化綁定的複本}：\texttt{auto [name, score] = p;
+score += 5;} 不會改到 \texttt{p.second}。 跟第~3~章「想修改卻用複本走訪」
+是同一件事，要改就加 \texttt{\&}。
+\end{itemize}
+
+\section{\texttt{set} 與 \texttt{map}}
+\label{sec:map-set}
+
+解題常要回答兩種問題：「這個數字出現過嗎？」和「每個單字出現幾次？」
+用 \texttt{vector} 存，每次都要從頭找一遍，資料有 $n$ 筆，查一次就要看
+$n$ 個元素。 C 的話要自己維持一個排好序的陣列再二分搜尋，插入新資料時還
+得搬動後面的元素；或者自己寫一棵二元搜尋樹。
+
+\texttt{set}（在 \texttt{<set>} 裡）是一個\textbf{排好序、不重複}的集合。
+加入、刪除、查詢都只要 $O(\log n)$ 的時間，大約是 $\log_2 n$ 次比較：
+$n$ 是十萬時大約 $17$ 次，$n$ 是一百萬時大約 $20$ 次。 它的內部是一棵會
+自己保持平衡的二元搜尋樹，這些細節是資料結構課的內容，這裡只要會用。
+
+\begin{example}[label=ex:set]{cpp}{(set\_demo.cpp) set 的加入、查詢與刪除}
+#include <iostream>
+#include <set>
+using namespace std;
+
+int main() {
+    set<int> s;
+    int x;
+    while (cin >> x) {
+        s.insert(x);
+    }
+    cout << s.size() << '\n';
+    for (int y : s) {
+        cout << y << ' ';
+    }
+    cout << '\n';
+
+    cout << s.count(4) << ' ' << s.count(7) << '\n';
+    s.erase(4);
+    s.erase(7);                  // 沒有 7，什麼都不做
+    if (s.find(4) == s.end()) {
+        cout << "4 已經刪掉了" << '\n';
+    }
+    cout << *s.begin() << ' ' << *s.rbegin() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 1 4 1 5 9 2 6 \\
+}{
+6 \\
+1 2 4 5 6 9 \\
+1 0 \\
+4 已經刪掉了 \\
+1 9 \\
+}
+
+\begin{itemize}
+\item \texttt{s.insert(x)}：加入 \texttt{x}。 已經有了就不加，所以讀了
+$8$ 個數字，\texttt{size()} 是 $6$。
+\item 範圍 \texttt{for} 一定由小到大走訪，跟加入的順序無關。
+\item \texttt{s.count(x)}：\texttt{x} 在不在。 \texttt{set} 不重複，所以
+只會是 $0$ 或 $1$，可以直接拿來當條件：\texttt{if (s.count(x))}。
+\item \texttt{s.erase(x)}：刪掉 \texttt{x}，不存在也沒關係。
+\item \texttt{s.find(x)}：找到時回傳指向那個元素的\textbf{迭代器}
+（iterator），找不到時回傳 \texttt{s.end()}。 迭代器的用法跟指標很像，
+\texttt{*} 取出它指著的元素；\texttt{end()} 是「最後一個元素的下一個」，
+不指著任何元素，專門用來表示「沒找到」。 判斷有沒有找到，一律跟
+\texttt{end()} 比，就像第~3~章 \texttt{string} 的 \texttt{find} 跟
+\texttt{npos} 比。 迭代器第~9~章再詳細講。
+\item \texttt{*s.begin()} 是最小的元素，\texttt{*s.rbegin()} 是最大的，
+\texttt{set} 不能是空的。
+\end{itemize}
+
+\subsection{\texttt{map}：從鍵查到值}
+
+\texttt{map<K, V>}（在 \texttt{<map>} 裡）存的是一對一對的
+\texttt{pair<const K, V>}：\textbf{鍵}（key）不重複，每個鍵對應一個
+\textbf{值}（value），依鍵的大小排好。 可以把它想成一個下標不必是整數的
+陣列：\texttt{cnt["the"]} 是 \texttt{"the"} 對應的值。 下面的程式計算每
+個單字出現幾次：
+
+\begin{example}[label=ex:word-count]{cpp}{(word\_count.cpp) 用 map 計算單字出現次數}
+#include <iostream>
+#include <map>
+#include <string>
+using namespace std;
+
+int main() {
+    map<string, int> cnt;
+    string w;
+    while (cin >> w) {
+        cnt[w]++;
+    }
+
+    for (const auto &[word, n] : cnt) {
+        cout << word << ' ' << n << '\n';
+    }
+
+    auto it = cnt.find("the");
+    if (it != cnt.end()) {
+        cout << "the 出現 " << it->second << " 次" << '\n';
+    }
+    cout << cnt.count("fox") << ' ' << cnt.size() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+the cat and the dog \\
+and the bird \\
+}{
+and 2 \\
+bird 1 \\
+cat 1 \\
+dog 1 \\
+the 3 \\
+the 出現 3 次 \\
+0 5 \\
+}
+
+\begin{itemize}
+\item \texttt{cnt[w]++}：\texttt{w} 第一次出現時，\texttt{map} 裡還沒有這
+個鍵，\texttt{[]} 會先\textbf{新增}一個 \texttt{(w, 0)}，再加 $1$。 之後
+再遇到 \texttt{w}，就是把原本的值加 $1$。 數數這種事，這個行為剛好省掉
+一個 \texttt{if}。
+\item 走訪時每個元素是 \texttt{pair<const string, int>}，用結構化綁定拆成
+\texttt{word} 和 \texttt{n}。 跟 \texttt{set} 一樣依鍵由小到大，字串就是
+字典順序。
+\item \texttt{cnt.find("the")} 回傳指向那個 \texttt{pair} 的迭代器。 它像
+指向結構的指標，用 \texttt{it->first}、\texttt{it->second} 取出鍵和值。
+\item \texttt{count}、\texttt{erase} 跟 \texttt{set} 一樣，以鍵為準。
+\end{itemize}
+
+\texttt{map} 的 \texttt{[]}、\texttt{find}、\texttt{count}、
+\texttt{insert}、\texttt{erase} 都是 $O(\log n)$，$n$ 是目前有幾個鍵。
+
+需要重複的元素時，有 \texttt{multiset} 和 \texttt{multimap}，用法類似，
+\texttt{count} 可能大於 $1$。
+
+\subsection{\texttt{[]} 查詢時會新增鍵}
+
+\texttt{cnt[w]++} 的新增行為，在「只是想查查看」的時候就變成問題：
+
+\begin{code}{cpp}{用 [] 查詢，map 變大了（錯誤示範）}
+map<string, int> score = {{"Ada", 95}, {"Alan", 88}};
+cout << score.size() << '\n';            // 2
+if (score["Grace"] > 90) {               // 只是想查查看
+    cout << "Grace 很高分" << '\n';
+}
+cout << score.size() << '\n';            // 3
+\end{code}
+
+\texttt{score["Grace"]} 找不到 \texttt{Grace}，就新增一個分數 $0$ 的
+\texttt{Grace}。 之後再走訪，就多出一行 \texttt{Grace 0}；如果分數本來就可能
+是 $0$，也分不出「考 $0$ 分」和「沒有這個人」。 只是查詢的時候，不要用
+\texttt{[]}：
+
+\begin{itemize}
+\item 只問有沒有：\texttt{score.count("Grace")}。
+\item 有的話要拿值：\texttt{auto it = score.find("Grace");}，
+\texttt{it != score.end()} 時再用 \texttt{it->second}。
+\item 確定一定有：\texttt{score.at("Grace")}。 不存在時丟出例外，程式中
+止並印出 \texttt{what():  map::at}，跟第~3~章 \texttt{vector} 的
+\texttt{at()} 一樣。
+\end{itemize}
+
+因為 \texttt{[]} 可能修改 \texttt{map}，\texttt{const map} 不能用
+\texttt{[]}。 函式參數寫成 \texttt{const map<string, int> \&m}，裡面寫
+\texttt{m["Ada"]} 會編譯失敗：
+
+\begin{code}{text}{編譯器的錯誤訊息}
+error: passing 'const std::map<std::__cxx11::basic_string<char>, int>' as 'this' argument discards qualifiers [-fpermissive]
+\end{code}
+
+這是第~5~章的訊息：對 \texttt{const} 物件呼叫了非 \texttt{const} 的成員函
+式。 修法是改用 \texttt{find} 或 \texttt{at}，不是把 \texttt{const} 拿掉
+（本章練習第~2~題）。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{修改 \texttt{set} 的元素}：\texttt{*s.begin() = 10;} 報
+\texttt{assignment of read-only location}；\texttt{for (int \&x : s)} 報
+\texttt{binding reference of type 'int\&' to 'const int' discards
+qualifiers}。 \texttt{set} 靠元素的大小決定它放在樹的哪裡，直接改值，順序
+就亂了，所以元素一律是 \texttt{const}。 要改，就先 \texttt{erase} 舊的值，
+再 \texttt{insert} 新的值。 \texttt{map} 的鍵也一樣是 \texttt{const}
+（\texttt{pair<const K, V>}），值則可以改：\texttt{for (auto \&[k, v] : m)}
+裡可以寫 \texttt{v++}，不能寫 \texttt{k = ...}。
+\item \textbf{自己的型別沒有 \texttt{<}}：\texttt{set<Point>} 加入元素時，
+錯誤指著標準函式庫的 \texttt{stl\_function.h}：\texttt{no match for
+'operator<' (operand types are 'const Point' and 'const Point')}。 跟第~6~
+章 \texttt{sort} 的情況一樣，\texttt{set} 和 \texttt{map} 的鍵要能用
+\texttt{<} 比較。 替 \texttt{Point} 寫 \texttt{operator<}，或者直接用
+\texttt{pair<int, int>} 當鍵。
+\end{itemize}
+
+\section{\texttt{unordered\_set} 與 \texttt{unordered\_map}}
+\label{sec:unordered}
+
+\texttt{unordered\_set} 和 \texttt{unordered\_map}（在
+\texttt{<unordered\_set>}、\texttt{<unordered\_map>} 裡）的用法跟
+\texttt{set}、\texttt{map} 幾乎一樣：\texttt{insert}、\texttt{count}、
+\texttt{find}、\texttt{erase}、\texttt{[]} 都有，\texttt{[]} 一樣會新增
+鍵。 差別在內部用的是\textbf{雜湊表}（hash table）：用一個雜湊函式把鍵算
+成一個位置，直接到那個位置找。 所以：
+
+\begin{itemize}
+\item 加入、刪除、查詢\textbf{平均}是 $O(1)$，跟資料有多少筆無關。
+\item 元素\textbf{沒有順序}。 走訪的順序跟加入的順序、大小都沒有關係。
+\end{itemize}
+
+下面的程式先讀入商品的價格表，再讀入一串要買的東西；不賣的商品印出提示，
+同一樣東西只買一次：
+
+\begin{example}[label=ex:unordered]{cpp}{(unordered\_demo.cpp) 用 unordered\_map 查價格，unordered\_set 記住買過的}
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    unordered_map<string, int> price;
+    for (int i = 0; i < n; i++) {
+        string item;
+        int p;
+        cin >> item >> p;
+        price[item] = p;
+    }
+
+    unordered_set<string> bought;
+    int total = 0;
+    string item;
+    while (cin >> item) {
+        auto it = price.find(item);
+        if (it == price.end()) {
+            cout << item << " 沒有賣" << '\n';
+        } else if (bought.count(item) > 0) {
+            cout << item << " 已經買過了" << '\n';
+        } else {
+            bought.insert(item);
+            total += it->second;
+        }
+    }
+    cout << "買了 " << bought.size() << " 樣，共 " << total << " 元" << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+tea 30 \\
+bread 45 \\
+milk 60 \\
+tea bread juice tea milk \\
+}{
+juice 沒有賣 \\
+tea 已經買過了 \\
+買了 3 樣，共 135 元 \\
+}
+
+這支程式只做查詢，沒有走訪 \texttt{price} 或 \texttt{bought}，所以輸出跟
+雜湊表內部怎麼排無關。 換成 \texttt{map} 和 \texttt{set}，輸出完全相同。
+
+\subsection{該用哪一個}
+
+\begin{itemize}
+\item 需要\textbf{順序}：依大小走訪、要最小或最大的元素、要找「比 $x$ 大
+的第一個」，用 \texttt{map}、\texttt{set}。 雜湊表做不到這些。
+\item 只需要「有沒有」「對應到什麼」：兩種都可以。 \texttt{unordered\_} 版
+本平均比較快。
+\item 「平均」$O(1)$ 不是保證。 很多鍵被算到同一個位置時，一次查詢可能要
+看過所有元素，變成 $O(n)$。 一般資料很少遇到，但競賽裡有人會故意出這種測
+資；\texttt{map}、\texttt{set} 的 $O(\log n)$ 則是每次都成立。
+\end{itemize}
+
+APCS 和一般作業的資料量，$O(\log n)$ 幾乎不會是瓶頸。 不確定的時候，先用
+\texttt{map}、\texttt{set}；走訪起來有順序，除錯時也比較好看。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以為走訪有固定順序}：用範圍 \texttt{for} 印出
+\texttt{unordered\_map} 的內容，順序看起來像是隨便排的。 這個順序沒有任何
+保證，換一個編譯器、多加幾個元素（雜湊表變大時會重新排列）都可能改變。
+某次執行剛好照加入順序印出來，也不代表下次還是。 輸出需要排序就用
+\texttt{map}，或者把內容放進 \texttt{vector} 再排序（第~9~章）。
+\item \textbf{用 \texttt{pair} 當鍵}：\texttt{unordered\_set<pair<int,
+int>>} 編譯失敗，錯誤訊息很長，關鍵是這一句：
+\begin{code}{text}{編譯器的錯誤訊息（節錄）}
+error: use of deleted function 'std::hash<std::pair<int, int> >::hash()'
+\end{code}
+標準函式庫沒有替 \texttt{pair} 準備雜湊函式。 簡單的解法是改用
+\texttt{set<pair<int, int>>}；座標的話也可以把 $(i, j)$ 換算成一個整數
+\texttt{i * c + j} 當鍵。
+\end{itemize}
+
+\section{\texttt{stack}、\texttt{queue} 與 \texttt{deque}}
+\label{sec:stack-queue}
+
+第~7~章把 \texttt{vector} 包在 \texttt{Stack} 裡面，只開放
+\texttt{push}、\texttt{pop}、\texttt{top}。 標準函式庫的 \texttt{stack}
+和 \texttt{queue} 就是這樣做的：裡面放一個容器（預設是 \texttt{deque}），
+外面只看得到少數幾個操作。 這兩個在標準裡叫\textbf{容器配接器}
+（container adapter）。
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+& \texttt{stack}（\texttt{<stack>}） & \texttt{queue}（\texttt{<queue>}） \\
+\midrule
+順序 & 後進先出（LIFO） & 先進先出（FIFO） \\
+放入 & \texttt{push(x)}：放到頂端 & \texttt{push(x)}：放到尾端 \\
+看 & \texttt{top()} & \texttt{front()}、\texttt{back()} \\
+取出 & \texttt{pop()}：拿掉頂端 & \texttt{pop()}：拿掉前端 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+兩個都有 \texttt{empty()} 和 \texttt{size()}，所有操作都是 $O(1)$。 注意
+\texttt{pop()} 不回傳值，要先用 \texttt{top()} 或 \texttt{front()} 拿到元
+素，再 \texttt{pop()}。
+
+\texttt{stack} 適合「最近的先處理」，例如括號配對：遇到左括號就放進去，
+遇到右括號就跟最近一個還沒配對的左括號比。
+
+\begin{example}[label=ex:brackets]{cpp}{(brackets.cpp) 用 stack 檢查括號配對}
+#include <iostream>
+#include <stack>
+#include <string>
+using namespace std;
+
+bool balanced(const string &s) {
+    stack<char> st;
+    for (char c : s) {
+        if (c == '(' || c == '[' || c == '{') {
+            st.push(c);
+        } else if (c == ')' || c == ']' || c == '}') {
+            if (st.empty()) {
+                return false;            // 右括號多了
+            }
+            char open = st.top();
+            st.pop();
+            if ((c == ')' && open != '(') || (c == ']' && open != '[') ||
+                (c == '}' && open != '{')) {
+                return false;            // 種類對不上
+            }
+        }
+    }
+    return st.empty();                   // 左括號沒有全部配完也不行
+}
+
+int main() {
+    string line;
+    while (getline(cin, line)) {
+        cout << (balanced(line) ? "yes" : "no") << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+([]\{\}) \\
+([)] \\
+((x) \\
+a{[}i] = f(b{[}j]); \\
+}{
+yes \\
+no \\
+no \\
+yes \\
+}
+
+三種不合法的情況各有一個 \texttt{return false}：右括號出現時沒有左括號可
+以配、種類對不上、讀完之後還剩左括號。 呼叫 \texttt{st.top()} 之前先檢查
+\texttt{st.empty()}，原因見本節的常見錯誤。
+
+\subsection{\texttt{queue} 與廣度優先搜尋}
+
+\texttt{queue} 適合「先來的先處理」。 它最常見的用途是\textbf{廣度優先搜
+尋}（breadth-first search，BFS）：從起點出發，先處理距離 $1$ 的點，再處理
+距離 $2$ 的點……，求出每個點離起點最少要走幾步。 BFS 為什麼正確是資料結
+構課的內容，這裡看 \texttt{queue} 在裡面怎麼用。
+
+下面的程式讀入一張 $n$ 個點、$m$ 條邊的無向圖，印出每個點到點 $1$ 的最
+短距離，走不到的印 $-1$。 每個點的鄰居存成 \texttt{vector<vector<int>>}，
+\texttt{adj[u]} 是和 \texttt{u} 相連的點：
+
+\begin{example}[label=ex:bfs]{cpp}{(bfs.cpp) 用 queue 求每個點到點 1 的距離}
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < m; i++) {
+        int a, b;
+        cin >> a >> b;
+        adj[a].push_back(b);
+        adj[b].push_back(a);
+    }
+
+    vector<int> dist(n + 1, -1);         // -1 表示還沒到過
+    queue<int> q;
+    dist[1] = 0;
+    q.push(1);
+    while (!q.empty()) {
+        int u = q.front();
+        q.pop();
+        for (int v : adj[u]) {
+            if (dist[v] == -1) {
+                dist[v] = dist[u] + 1;
+                q.push(v);
+            }
+        }
+    }
+
+    for (int i = 1; i <= n; i++) {
+        cout << i << ": " << dist[i] << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 5 \\
+1 2 \\
+1 3 \\
+2 4 \\
+3 4 \\
+4 5 \\
+}{
+1: 0 \\
+2: 1 \\
+3: 1 \\
+4: 2 \\
+5: 3 \\
+6: -1 \\
+}
+
+\begin{itemize}
+\item 點從 $1$ 編號到 $n$，所以 \texttt{adj} 和 \texttt{dist} 開 $n + 1$
+個，第 $0$ 個不用。
+\item 迴圈每一輪從前端拿出一個點 \texttt{u}，把它還沒到過的鄰居設好距離、
+放到尾端。 距離 $1$ 的點都排在距離 $2$ 的點前面，所以點是依距離由近到遠
+被處理的。
+\item \texttt{dist[v] == -1} 同時當作「還沒到過」的記號。 每個點只會放進
+\texttt{queue} 一次，整個 BFS 的時間跟點數加邊數成正比。
+\end{itemize}
+
+這個「\texttt{front}、\texttt{pop}、看鄰居、\texttt{push}」的迴圈是 BFS
+的固定寫法，在格子地圖上也一樣，只是點變成 \texttt{pair<int, int>} 座標
+（本章練習第~5~題）。
+
+\subsection{\texttt{deque}}
+
+\texttt{deque}（在 \texttt{<deque>} 裡，念作 deck）是兩端都能放入和取出
+的序列，兩端的操作都是 $O(1)$，也能用 \texttt{[]} 存取：
+
+\begin{code}{cpp}{deque 的兩端操作}
+deque<int> d = {2, 3};
+d.push_front(1);           // 1 2 3
+d.push_back(4);            // 1 2 3 4
+d.pop_front();             // 2 3 4
+cout << d.front() << ' ' << d.back() << ' ' << d[1] << '\n';   // 2 4 3
+\end{code}
+
+\texttt{vector} 也能在前端插入，但要把後面所有元素往後搬一格，是 $O(n)$。
+需要在兩端增刪時用 \texttt{deque}，例如滑動視窗的題目；只用到一端或只需
+要先進先出時，用 \texttt{stack}、\texttt{queue} 把意圖寫清楚。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以為 \texttt{pop()} 會回傳元素}：\texttt{int x = s.pop();}
+報 \texttt{void value not ignored as it ought to be}。 先
+\texttt{int x = s.top();}，再 \texttt{s.pop();}。
+\item \textbf{對空的容器用 \texttt{top()}、\texttt{front()}、\texttt{pop()}}：
+這三個都不檢查是不是空的，跟 \texttt{vector} 的 \texttt{back()} 一樣是未定
+義行為。 在本書測試的環境下，對空的 \texttt{stack} 呼叫 \texttt{top()}，
+程式直接當掉（Segmentation fault）。 只要有可能是空的，先檢查
+\texttt{empty()}，像 \texttt{balanced} 那樣。
+\item \textbf{想走訪 \texttt{stack} 或 \texttt{queue}}：用範圍 \texttt{for}
+走訪 \texttt{queue} 編譯失敗，報 \texttt{'class std::queue<int>' has no member named
+'begin'}。 配接器故意只開放兩端，需要走訪的話，一開始就該用
+\texttt{vector} 或 \texttt{deque}。
+\end{itemize}
+
+\section{\texttt{priority\_queue}}
+\label{sec:pq}
+
+有些問題每次都要拿出「目前最大（或最小）的那一個」，而且中途還會再放新
+的東西進來：一直排序太慢，每次從頭找最大值是 $O(n)$。
+\texttt{priority\_queue}（優先佇列，在 \texttt{<queue>} 裡）專門做這件事：
+
+\begin{itemize}
+\item \texttt{push(x)}：放入，$O(\log n)$。
+\item \texttt{top()}：看目前最大的元素，$O(1)$。
+\item \texttt{pop()}：拿掉目前最大的元素，$O(\log n)$。
+\end{itemize}
+
+它的內部是一個\textbf{堆積}（heap），存在一個 \texttt{vector} 裡，只保證最
+大的在最上面，其他元素沒有排好。
+
+\begin{example}[label=ex:pq]{cpp}{(pq\_demo.cpp) 最大堆積、最小堆積與 pair}
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    priority_queue<int> big;
+    priority_queue<int, vector<int>, greater<int>> small;
+    for (int x : {5, 1, 4, 1, 5, 9, 2, 6}) {
+        big.push(x);
+        small.push(x);
+    }
+    cout << big.top() << ' ' << small.top() << ' ' << big.size() << '\n';
+
+    while (!small.empty()) {
+        cout << small.top() << ' ';
+        small.pop();
+    }
+    cout << '\n';
+
+    // (時間, 名字)：時間小的先做，時間一樣就照名字
+    priority_queue<pair<int, string>, vector<pair<int, string>>,
+                   greater<pair<int, string>>> tasks;
+    tasks.push({30, "Grace"});
+    tasks.push({10, "Alan"});
+    tasks.push({30, "Ada"});
+    tasks.push({20, "Linus"});
+    while (!tasks.empty()) {
+        auto [t, name] = tasks.top();
+        tasks.pop();
+        cout << t << ' ' << name << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+9 1 8 \\
+1 1 2 4 5 5 6 9 \\
+10 Alan \\
+20 Linus \\
+30 Ada \\
+30 Grace \\
+}
+
+\begin{itemize}
+\item \texttt{priority\_queue<int>} 預設是\textbf{最大堆積}，\texttt{top()}
+是最大的。
+\item 要最小的在上面，得寫出三個型別參數：元素型別、裡面用的容器
+（\texttt{vector<int>}）、比較方式 \texttt{greater<int>}（在
+\texttt{<functional>} 裡）。 第二個參數有預設值，但要給第三個就得把第二
+個也寫出來，跟函式的預設引數一樣不能跳過。
+\item 一直 \texttt{top()}、\texttt{pop()} 到空為止，就依序拿出所有元素，
+最小堆積拿出來是由小到大。
+\item 元素是 \texttt{pair} 時用 \texttt{pair} 的比較：先比
+\texttt{first}，相同再比 \texttt{second}。 把要優先比較的東西放在
+\texttt{first}，例如 \texttt{(時間, 名字)}；之後學最短路徑時，會在堆積裡放
+\texttt{(距離, 點)}。 \texttt{greater} 的型別要跟元素型別一致，寫成
+\texttt{greater<pair<int, string>>}。
+\end{itemize}
+
+下面是一個典型的用法：有 $n$ 堆東西，每次可以把兩堆合成一堆，代價是兩堆
+重量的和，問全部合成一堆的最小總代價。 每次都合併目前最輕的兩堆，就能得
+到最小值（為什麼這樣是對的，屬於演算法課的貪婪法）。 每一輪要拿出最小的
+兩個、再放回合併後的那一個，正好是最小堆積的工作：
+
+\begin{example}[label=ex:merge]{cpp}{(merge.cpp) 每次合併最輕的兩堆}
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    priority_queue<long long, vector<long long>, greater<long long>> pq;
+    for (int i = 0; i < n; i++) {
+        long long w;
+        cin >> w;
+        pq.push(w);
+    }
+
+    long long cost = 0;
+    while (pq.size() > 1) {
+        long long a = pq.top();
+        pq.pop();
+        long long b = pq.top();
+        pq.pop();
+        cost += a + b;
+        pq.push(a + b);
+    }
+    cout << cost << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+4 1 3 2 \\
+}{
+19 \\
+}
+
+合併的過程是 $1 + 2 = 3$、$3 + 3 = 6$、$4 + 6 = 10$，總代價
+$3 + 6 + 10 = 19$。 每一輪 \texttt{pop} 兩次、\texttt{push} 一次，共
+$n - 1$ 輪，總時間是 $O(n \log n)$。 代價累加起來可能很大，所以用
+\texttt{long long}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以為 \texttt{top()} 是最小的}：\texttt{priority\_queue<int>}
+是最大堆積。 預設的比較方式是 \texttt{less}（小於），結果卻是最大的在上
+面，很容易記反。 寫完先拿兩三個數字試一下。
+\item \textbf{只寫兩個型別參數}：\texttt{priority\_queue<int,
+greater<int>>} 把 \texttt{greater<int>} 放到了「裡面用的容器」的位置，報
+\texttt{no type named 'value\_type' in 'struct std::greater<int>'}。 要寫
+\texttt{priority\_queue<int, vector<int>, greater<int>>}。
+\item \textbf{對空的 \texttt{priority\_queue} 用 \texttt{top()} 或
+\texttt{pop()}}：未定義行為，在本書測試的環境下直接當掉。 編譯時加上
+\texttt{-D\_GLIBCXX\_ASSERTIONS}，標準函式庫會替這類操作加上檢查，執行時
+印出 \texttt{Assertion '!this->empty()' failed.} 並中止，比當掉好查。
+迴圈條件寫 \texttt{while (!pq.empty())}，或像 \texttt{merge.cpp} 那樣先確
+定裡面還有足夠的元素。 另外，\texttt{priority\_queue} 跟 \texttt{stack} 一
+樣不能走訪。
+\end{itemize}
+
+\subsection{怎麼選容器}
+
+最後把本章的容器整理在一起。 $n$ 是容器裡的元素個數：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+需要 & 容器 & 主要操作的時間 \\
+\midrule
+依下標存取、從尾端增減 & \texttt{vector} & $O(1)$ \\
+兩端都要增減 & \texttt{deque} & $O(1)$ \\
+後進先出 & \texttt{stack} & $O(1)$ \\
+先進先出（BFS） & \texttt{queue} & $O(1)$ \\
+有沒有出現過，要有順序 & \texttt{set} & $O(\log n)$ \\
+鍵對應到值，要有順序 & \texttt{map} & $O(\log n)$ \\
+有沒有出現過，不需要順序 & \texttt{unordered\_set} & 平均 $O(1)$ \\
+鍵對應到值，不需要順序 & \texttt{unordered\_map} & 平均 $O(1)$ \\
+反覆拿出最大或最小的 & \texttt{priority\_queue} & $O(\log n)$，\texttt{top} 是 $O(1)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+先想清楚程式要對資料做哪些操作、做幾次，再挑一個讓最常做的操作最快的容
+器。 都不確定時，從 \texttt{vector} 開始。
+
+\section{本章練習}
+\label{sec:ch8-exercises}
+
+\begin{drills}[label=drills:ch8]
+\item 預測下面程式的輸出。
+\begin{code}{cpp}{練習：預測輸出}
+#include <iostream>
+#include <map>
+#include <queue>
+#include <set>
+#include <stack>
+#include <string>
+using namespace std;
+
+int main() {
+    map<string, int> m;
+    m["b"] = 2;
+    m["a"] = 1;
+    cout << m["c"] << ' ' << m.size() << '\n';
+    for (const auto &[k, v] : m) {
+        cout << k << v << ' ';
+    }
+    cout << '\n';
+
+    set<int> s = {3, 1, 3, 2};
+    s.insert(2);
+    cout << s.size() << ' ' << s.count(3) << ' ' << *s.begin() << '\n';
+
+    stack<int> st;
+    queue<int> q;
+    priority_queue<int> pq;
+    for (int x : {3, 1, 4}) {
+        st.push(x);
+        q.push(x);
+        pq.push(x);
+    }
+    pq.pop();
+    cout << st.top() << ' ' << q.front() << ' ' << pq.top() << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式先讀入 $n$ 個人的姓名和分數，再讀入一串要查詢的姓名。 它
+編譯失敗。 有人把 \texttt{lookup} 參數的 \texttt{const} 拿掉，編譯就過了，
+但輸入
+\begin{code}{text}{練習 2 的輸入}
+3
+Ada 95
+Alan 88
+Linus 0
+Ada Grace Linus
+\end{code}
+卻輸出 \texttt{Ada 95}、\texttt{Grace 查無此人}、\texttt{Linus 查無此人}、
+\texttt{共 4 人}。 說明編譯錯誤和兩個錯誤輸出的原因，並正確地改好它，讓
+\texttt{Linus} 印出 \texttt{Linus 0}，最後印出 \texttt{共 3 人}。
+\begin{code}{cpp}{練習：成績查詢}
+#include <iostream>
+#include <map>
+#include <string>
+using namespace std;
+
+int lookup(const map<string, int> &score, const string &name) {
+    if (score[name] == 0) {
+        return -1;                       // 查無此人
+    }
+    return score[name];
+}
+
+int main() {
+    map<string, int> score;
+    int n;
+    cin >> n;
+    for (int i = 0; i < n; i++) {
+        string name;
+        int s;
+        cin >> name >> s;
+        score[name] = s;
+    }
+
+    string q;
+    while (cin >> q) {
+        int s = lookup(score, q);
+        if (s == -1) {
+            cout << q << " 查無此人" << '\n';
+        } else {
+            cout << q << ' ' << s << '\n';
+        }
+    }
+    cout << "共 " << score.size() << " 人" << '\n';
+    return 0;
+}
+\end{code}
+\item 寫一支程式，讀入一段英文直到輸入結束（單字之間以空白或換行隔開，不
+用處理標點和大小寫），依字典順序印出每個單字和它出現的次數，最後印出出現
+最多次的單字；次數相同時，取字典順序最前面的。 輸入
+\texttt{to be or not to be} 和 \texttt{that is the question} 兩行時，最後
+一行應該是 \texttt{最多的是 be 2}。
+\item 讀入 $n$ 和 $n$ 個整數。 第一行依「第一次出現的順序」印出所有不同的
+數字，第二行由小到大印出所有不同的數字，數字之間以空白隔開。 輸入
+\texttt{8} 和 \texttt{5 3 5 1 3 9 1 5} 時應輸出 \texttt{5 3 1 9} 和
+\texttt{1 3 5 9}。 只用一個 \texttt{set} 為什麼做不到第一行？
+\item 迷宮是 $r$ 列 $c$ 行的格子，\texttt{S} 是起點、\texttt{E} 是終點、
+\texttt{\#} 是牆、\texttt{.} 是空地，每一步可以往上下左右走一格，不能走進
+牆或走出邊界。 讀入 $r$、$c$ 和地圖，印出從 \texttt{S} 走到 \texttt{E} 最
+少要幾步，走不到就印 $-1$。 用 \texttt{queue<pair<int, int>>} 做 BFS。 輸入
+\begin{code}{text}{練習 5 的輸入}
+4 5
+S.#..
+.##.#
+...#E
+.#...
+\end{code}
+應該輸出 \texttt{8}。
+\item 讀入 $n$、$k$ 和 $n$ 個整數，由大到小印出最大的 $k$ 個（$k \le n$）。
+輸入 \texttt{8 3} 和 \texttt{5 1 4 1 5 9 2 6} 時應輸出 \texttt{9 6 5}。 用
+\texttt{priority\_queue} 做，而且堆積裡最多只放 $k + 1$ 個元素。 提示：用
+最小堆積保存「目前最大的 $k$ 個」。
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出四行：\texttt{0 3}、\texttt{a1 b2 c0 }、\texttt{3 1 1}、
+\texttt{4 3 3}。 \texttt{m["c"]} 新增了鍵 \texttt{c}，值是 $0$，所以接著印
+出的 \texttt{size()} 是 $3$。 C++17 規定 \texttt{<<} 串起來的運算元由左到
+右求值，\texttt{m["c"]} 一定在 \texttt{m.size()} 之前。 \texttt{map} 依鍵
+走訪，所以是 \texttt{a}、\texttt{b}、\texttt{c}，跟放進去的順序無關。
+\texttt{set} 去掉重複後剩 \texttt{1 2 3}，再加入 \texttt{2} 也不會變。
+\texttt{stack} 的頂端是最後放的 $4$，\texttt{queue} 的前端是最先放的 $3$，
+\texttt{priority\_queue} 拿掉最大的 $4$ 之後頂端是 $3$。
+\item 編譯錯誤：\texttt{score} 是 \texttt{const} 參考，\texttt{[]} 可能新
+增鍵，不能用在 \texttt{const map} 上，報 \texttt{passing 'const
+std::map<...>' as 'this' argument discards qualifiers}。 拿掉
+\texttt{const} 只是讓錯誤藏起來：
+(1) \texttt{score["Grace"]} 找不到 \texttt{Grace}，新增了一個值為 $0$ 的
+\texttt{Grace}，所以最後是 \texttt{共 4 人}；(2) 用「值是 $0$」表示「查無
+此人」，分不出真的考 $0$ 分的 \texttt{Linus}。 正確的改法是保留
+\texttt{const}，改用 \texttt{find}：
+\begin{code}{cpp}{練習 2：lookup 改用 find}
+int lookup(const map<string, int> &score, const string &name) {
+    auto it = score.find(name);
+    if (it == score.end()) {
+        return -1;                       // 查無此人
+    }
+    return it->second;
+}
+\end{code}
+改完輸出 \texttt{Ada 95}、\texttt{Grace 查無此人}、\texttt{Linus 0}、
+\texttt{共 3 人}。 \texttt{find} 只查不改，也順便只找了一次，原本的程式
+找到的話要找兩次。 這裡仍然用 $-1$ 表示查無此人，前提是分數不會是負的。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答（讀完之後）}
+// 讀入的部分同範例 word_count.cpp：while (cin >> w) cnt[w]++;
+string best;
+int bestCount = 0;
+for (const auto &[word, n] : cnt) {
+    cout << word << ' ' << n << '\n';
+    if (n > bestCount) {
+        best = word;
+        bestCount = n;
+    }
+}
+cout << "最多的是 " << best << ' ' << bestCount << '\n';
+\end{code}
+\texttt{map} 本來就依字典順序走訪，印出來就是要求的順序。 找最多次時用
+\texttt{>} 而不是 \texttt{>=}：同樣次數的單字，只有字典順序最前面、最早遇
+到的那個會被記下來。 \texttt{be} 和 \texttt{to} 都出現 $2$ 次，所以答案是
+\texttt{be}。 這裡用 \texttt{map} 而不是 \texttt{unordered\_map}，因為輸出
+需要順序。
+\item 一種寫法：
+\begin{code}{cpp}{練習 4 參考解答（讀入的迴圈）}
+unordered_set<int> seen;
+vector<int> order;
+set<int> sorted;
+for (int i = 0; i < n; i++) {
+    int x;
+    cin >> x;
+    if (seen.count(x) == 0) {
+        seen.insert(x);
+        order.push_back(x);
+    }
+    sorted.insert(x);
+}
+// 接著用範圍 for 依序印出 order，再印出 sorted
+\end{code}
+\texttt{set} 只記得「有哪些數字」，走訪時一定由小到大，加入的順序已經丟
+掉了。 要保留第一次出現的順序，就另外用 \texttt{vector} 記下來，
+\texttt{seen} 只負責回答「出現過沒有」。 \texttt{seen} 從來不走訪，所以
+用 \texttt{unordered\_set} 沒有順序的問題；換成 \texttt{set} 也可以。 其
+實 \texttt{sorted} 就能兼做 \texttt{seen} 的工作（\texttt{sorted.count(x)}），
+這裡分開寫比較清楚。 行尾會多一個空白，不想要的話照第~3~章練習 4 的寫法
+處理。
+\item 一種寫法：
+\begin{code}{cpp}{練習 5 參考解答（BFS 的部分）}
+// g 是 vector<string>，讀法同第 3 章的踩地雷範例
+// 先找到 S 的位置 (si, sj)
+vector<vector<int>> dist(r, vector<int>(c, -1));
+queue<pair<int, int>> q;
+dist[si][sj] = 0;
+q.push({si, sj});
+
+int di[] = {-1, 1, 0, 0};
+int dj[] = {0, 0, -1, 1};
+while (!q.empty()) {
+    auto [i, j] = q.front();
+    q.pop();
+    if (g[i][j] == 'E') {
+        cout << dist[i][j] << '\n';
+        return 0;
+    }
+    for (int d = 0; d < 4; d++) {
+        int ni = i + di[d], nj = j + dj[d];
+        if (ni >= 0 && ni < r && nj >= 0 && nj < c && g[ni][nj] != '#' &&
+            dist[ni][nj] == -1) {
+            dist[ni][nj] = dist[i][j] + 1;
+            q.push({ni, nj});
+        }
+    }
+}
+cout << -1 << '\n';
+\end{code}
+跟範例~\ref{ex:bfs} 是同一個迴圈，點換成座標 \texttt{(i, j)}，鄰居換成上
+下左右四格，用 \texttt{di}、\texttt{dj} 兩個陣列列出四個方向。 第~3~章踩
+地雷範例的邊界檢查在這裡也用得上，另外多檢查「不是牆」和「還沒到過」。
+\texttt{auto [i, j] = q.front();} 是複本，下一行 \texttt{pop()} 之後仍然可
+以用；寫成 \texttt{auto \&[i, j]} 的話，\texttt{pop()} 之後就是懸置參考了。
+\item 一種寫法：
+\begin{code}{cpp}{練習 6 參考解答（主要部分）}
+priority_queue<int, vector<int>, greater<int>> pq;   // 目前最大的 k 個
+for (int i = 0; i < n; i++) {
+    int x;
+    cin >> x;
+    pq.push(x);
+    if ((int)pq.size() > k) {
+        pq.pop();                                     // 丟掉最小的
+    }
+}
+vector<int> top;
+while (!pq.empty()) {
+    top.push_back(pq.top());
+    pq.pop();
+}
+// top 是由小到大，倒著印出來就是 9 6 5
+\end{code}
+最小堆積的頂端是「目前最大的 $k$ 個」裡最小的那一個。 新的數字放進去後
+如果超過 $k$ 個，就把最小的丟掉；丟掉的那個一定不會是最後的答案，因為已經
+有 $k$ 個比它大或一樣大的數字。 讀完之後，從最小堆積拿出來是由小到大，
+所以先存進 \texttt{vector} 再倒著印（第~3~章範例的倒序迴圈）。 堆積裡最多只有 $k + 1$ 個元素，每
+次操作 $O(\log k)$，總時間 $O(n \log k)$；把全部 $n$ 個放進最大堆積再拿
+$k$ 次也可以，但堆積會有 $n$ 個元素。
+\end{enumerate}
