@@ -228,7 +228,7 @@ private:
 int main() {
     {
         Derived d;
-        cout << "--- d 建好了 ---" << '\n';
+        cout << "d 建好了" << '\n';
     }
     cout << "main 結束" << '\n';
     return 0;
@@ -240,7 +240,7 @@ int main() {
 Base 建構子本體 \\
 建立 Derived 的成員 \\
 Derived 建構子本體 \\
---- d 建好了 --- \\
+d 建好了 \\
 Derived 解構子本體 \\
 銷毀 Derived 的成員 \\
 Base 解構子本體 \\
@@ -577,7 +577,7 @@ allocated by thread T0 here:
 把第 $8$ 行改成 \texttt{virtual \textasciitilde Base() \{ ... \}}，
 \texttt{delete} 就看動態型別，先呼叫 \texttt{\textasciitilde Derived}，再
 呼叫 \texttt{\textasciitilde Base}（上一節的順序），輸出多一行
-\texttt{\textasciitilde Derived}，ASan 也沒有報告。 規則很簡單：\textbf{有虛
+\texttt{\textasciitilde Derived}，ASan 也沒有報告。 規則是：\textbf{有虛
 擬函式的基底類別，解構子一定要是 \texttt{virtual}}。 不需要做事的話，寫
 \texttt{virtual \textasciitilde Shape() = default;} 就好。
 
