@@ -1,0 +1,33 @@
+\ProvidesPackage{sleek-recap}[2026/11/15 v1.0 C recap box]
+
+%%%%%%%%%%%%%%%%
+% Requirements %
+%%%%%%%%%%%%%%%%
+
+\RequirePackage{tcolorbox}
+\tcbuselibrary{skins, breakable}
+
+%%%%%%%%%%%%%%%%
+% Environments %
+%%%%%%%%%%%%%%%%
+
+% C 回顧：遇到讀者在 C 裡學過、但這裡會用到的較進階概念（指標、
+% malloc/free、struct、char[] 字串……）時，先用這個框把 C 的寫法與
+% 重點講一遍，框結束後再進入 C++ 的做法。
+% 樣式與 sleek-code 的 iotermbox 一致：直角、深灰框、灰底標題列。
+% 可選參數是小標題，例如
+%   \begin{crecap}[scanf 為什麼要 \&]
+%   ...
+%   \end{crecap}
+% 框內可以放 code 環境。
+\newtcolorbox{crecap}[1][]{%
+    enhanced jigsaw, breakable,
+    sharp corners, boxrule=0.5mm,
+    colback=black!3, colframe=black!65, coltext=black,
+    colbacktitle=black!65, coltitle=white, fonttitle=\bfseries,
+    title={C 回顧\if\relax\detokenize{#1}\relax\else：#1\fi},
+    left=3mm, right=3mm, top=2mm, bottom=2mm,
+    before skip=\medskipamount, after skip=\medskipamount,
+}
+
+\endinput

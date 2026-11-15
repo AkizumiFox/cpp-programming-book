@@ -1,0 +1,689 @@
+\chapter{從 C 到 C++}
+\label{ch:from-c-to-cpp}
+
+學完 C，你已經會變數、迴圈、陣列、函式、指標和結構。 C++ 幾乎把這些
+全部保留下來，再往上加了參考、類別、模板和一整套標準函式庫。 換句話說，
+你不是從零開始學一個新語言，而是在熟悉的地基上多蓋幾層。
+
+這一章只做最基本的轉換：寫出第一支 C++ 程式並編譯它，看懂到處出現的
+\texttt{std::}，學會用 \texttt{cout} 輸出、用 \texttt{cin} 輸入，以及
+解題時常見的輸入加速寫法。 最後一節整理 C 的寫法在 C++ 裡哪些照用、
+哪些要改。
+
+\section{第一支 C++ 程式}
+\label{sec:first-program}
+
+先看熟悉的 C 版本：
+
+\begin{code}{c}{C 的 Hello}
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello, C!\n");
+    return 0;
+}
+\end{code}
+
+對應的 C++ 版本長這樣：
+
+\begin{example}[label=ex:hello]{cpp}{(hello.cpp) 第一支 C++ 程式}
+#include <iostream>
+
+int main() {
+    std::cout << "Hello, C++!" << '\n';
+    std::cout << 1 + 2 << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Hello, C++! \\
+3 \\
+}
+
+逐行對照：
+
+\begin{itemize}
+\item \texttt{\#include <iostream>}：C++ 的輸入輸出放在
+\texttt{<iostream>}（input/output stream）這個標頭檔裡，地位相當於
+C 的 \texttt{<stdio.h>}。 C++ 標準函式庫的標頭檔沒有 \texttt{.h}。
+\item \texttt{int main()}：C++ 裡空括號就代表沒有參數，不必寫
+\texttt{void}（寫了也合法）。
+\item \texttt{std::cout}：標準輸出，也就是螢幕。 前面的 \texttt{std::}
+下一節解釋。
+\item \texttt{<<}：把右邊的東西送進 \texttt{cout}。 可以一直串下去，
+一行送好幾個值。
+\item \texttt{'\textbackslash n'}：換行字元，跟 C 一樣。
+\end{itemize}
+
+第二行輸出值得注意：\texttt{1 + 2} 印出 $3$，我們沒有寫任何
+\texttt{\%d}。 \texttt{cout} 會依照值的型別決定怎麼印，這是它跟
+\texttt{printf} 最大的不同，第~\ref{sec:cout}~節再細看。
+
+\subsection{編譯與執行}
+
+C++ 原始檔的副檔名慣例是 \texttt{.cpp}。 編譯器改用 \texttt{g++}，
+用法跟 \texttt{gcc} 幾乎一樣：
+
+\begin{code}{bash}{編譯並執行 hello.cpp}
+g++ -std=c++17 -Wall hello.cpp -o hello
+./hello
+\end{code}
+
+\texttt{-std=c++17} 指定用 C++17 標準編譯，\texttt{-Wall} 打開常用警告。
+本書每一支完整範例都用這行指令編譯、實際跑過，印出的結果就是書上寫的。
+
+Windows 上執行檔叫 \texttt{hello.exe}，在命令提示字元裡直接打
+\texttt{hello} 執行。 用 IDE 的話，記得在設定裡把語言標準選成 C++17
+或更新的版本。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{用 \texttt{gcc} 編譯 \texttt{.cpp}}：\texttt{gcc} 看到
+\texttt{.cpp} 會用 C++ 模式編譯，但連結時不會自動加上 C++ 標準函式庫，
+常見的結果是一長串 \texttt{undefined reference}。 編 C++ 一律用
+\texttt{g++}。
+\item \textbf{寫成 \texttt{<iostream.h>}}：這是很舊的寫法，現在的編譯器
+找不到這個檔案。 C++ 標準標頭檔沒有 \texttt{.h}。
+\item \textbf{忘了 \texttt{-std=c++17}}：本書後面會用到 C++17 才有的
+寫法。 舊版編譯器的預設標準可能比較舊，明確寫出來最保險。
+\end{itemize}
+
+\section{namespace 與 \texttt{std::}}
+\label{sec:namespace}
+
+大型程式和函式庫裡名字很多，難免撞名：你寫了一個 \texttt{count}，某個
+函式庫也有一個 \texttt{count}。 C 只能靠取名字時加前綴來避開，例如
+\texttt{mylib\_count}。 C++ 提供\textbf{命名空間}（namespace），把名字
+分裝在不同的空間裡，用 \texttt{空間名::名字} 指定要哪一個。
+\texttt{::} 叫做\textbf{範圍解析運算子}（scope resolution operator）。
+
+\begin{example}[label=ex:namespaces]{cpp}{(namespaces.cpp) 兩個空間裡的同名變數}
+#include <iostream>
+
+namespace school {
+    int count = 30;
+}
+
+namespace club {
+    int count = 12;
+}
+
+int main() {
+    std::cout << school::count << ' ' << club::count << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+30 12 \\
+}
+
+兩個 \texttt{count} 住在不同的空間，互不干擾。 C++ 標準函式庫的名字
+幾乎都放在一個叫 \texttt{std}（standard）的命名空間裡，所以要寫
+\texttt{std::cout}，意思是 \texttt{std} 裡的 \texttt{cout}。
+
+\subsection{\texttt{using namespace std;}}
+
+每次都寫 \texttt{std::} 有點囉嗦。 在檔案開頭加一行
+
+\begin{code}{cpp}{把 std 的名字全部引進來}
+using namespace std;
+\end{code}
+
+之後就能直接寫 \texttt{cout}，編譯器會自己到 \texttt{std} 裡找。 解題
+和小程式常這樣寫，本書從下一節開始也這樣寫，讓範例短一點。
+
+代價是 \texttt{std} 裡上千個名字全部倒進來，撞名的機會變大。 下面這段
+程式自己定義了全域變數 \texttt{count}，而 \texttt{<algorithm>} 裡剛好
+有一個函式 \texttt{std::count}：
+
+\begin{code}{cpp}{using namespace std 造成撞名（錯誤示範）}
+#include <algorithm>
+#include <iostream>
+using namespace std;
+
+int count = 0;
+
+int main() {
+    count++;               // 編譯錯誤
+    cout << count << '\n';
+    return 0;
+}
+\end{code}
+
+\texttt{g++} 會說：
+
+\begin{code}{text}{編譯器的錯誤訊息}
+error: reference to 'count' is ambiguous
+\end{code}
+
+ambiguous 是有歧義：編譯器不知道你要自己的 \texttt{count} 還是
+\texttt{std::count}。 遇到這種錯誤，把自己的變數改個名字就好。 寫給別
+人用的程式或多人合作的專案，通常不寫 \texttt{using namespace std;}，
+老實寫 \texttt{std::}。 折衷的寫法是只引進用得到的名字，例如
+\texttt{using std::cout;}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{漏了 \texttt{std::}}：沒有寫 \texttt{using}，又直接寫
+\texttt{cout}，\texttt{g++} 會報 \texttt{'cout' was not declared in
+this scope; did you mean 'std::cout'?}。 照提示補上 \texttt{std::}，
+或在開頭加 \texttt{using}。
+\item \textbf{寫在標頭檔裡}：\texttt{using namespace std;} 若寫在
+\texttt{.h} 標頭檔，每個 \texttt{\#include} 它的檔案都會被迫引進整個
+\texttt{std}。 標頭檔裡一律寫完整的 \texttt{std::}。
+\end{itemize}
+
+\section{用 \texttt{cout} 輸出}
+\label{sec:cout}
+
+\begin{crecap}[printf 的格式字串]
+\texttt{printf} 靠格式字串決定怎麼印每個引數：\texttt{\%d} 印
+\texttt{int}、\texttt{\%lld} 印 \texttt{long long}、\texttt{\%f} 印
+\texttt{double}、\texttt{\%c} 印字元、\texttt{\%s} 印字串，
+\texttt{\%.2f} 印到小數點後兩位。 格式與型別對不上（例如用
+\texttt{\%d} 印 \texttt{double}）是未定義行為，編譯器只會給警告，
+程式照樣編得過、印出錯的東西。
+\end{crecap}
+
+\texttt{cout} 不用格式字串。 每個用 \texttt{<<} 送進去的值，編譯器都
+知道它的型別，會自動選對應的印法，所以不會有格式與型別對不上的問題。
+
+\begin{example}[label=ex:cout-basics]{cpp}{(cout\_basics.cpp) 不同型別的輸出與小數位數}
+#include <iomanip>
+#include <iostream>
+using namespace std;
+
+int main() {
+    int n = 3;
+    double avg = 247.0 / n;
+    char grade = 'B';
+    bool passed = avg >= 60;
+
+    cout << "人數：" << n << '\n';
+    cout << "平均：" << avg << '\n';
+    cout << "等第：" << grade << '\n';
+    cout << "及格：" << passed << '\n';
+
+    cout << fixed << setprecision(2);
+    cout << "平均：" << avg << '\n';
+    cout << "再印一次：" << 1.0 / 3 << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+人數：3 \\
+平均：82.3333 \\
+等第：B \\
+及格：1 \\
+平均：82.33 \\
+再印一次：0.33 \\
+}
+
+幾個要注意的地方：
+
+\begin{itemize}
+\item \texttt{double} 預設印 $6$ 位\textbf{有效數字}，所以
+$82.333\ldots$ 印成 \texttt{82.3333}，不是 C 的 \texttt{\%f} 那種固定
+小數點後 $6$ 位。
+\item \texttt{bool} 是 C++ 內建的型別，值是 \texttt{true} 或
+\texttt{false}，用 \texttt{cout} 印出來是 \texttt{1} 或 \texttt{0}。
+\item 要固定小數位數，先送 \texttt{fixed}，再送
+\texttt{setprecision(位數)}，效果等於 \texttt{\%.2f}。
+\texttt{setprecision} 在 \texttt{<iomanip>} 裡，要另外 include。
+\item \texttt{fixed} 和 \texttt{setprecision} 一旦設定就一直有效。
+範例最後一行沒有再設定，\texttt{1.0 / 3} 照樣印成兩位小數。
+\end{itemize}
+
+\subsection{\texttt{endl} 與 \texttt{'\textbackslash n'}}
+
+很多教材用 \texttt{endl} 換行：
+
+\begin{code}{cpp}{兩種換行寫法}
+cout << "Hello" << endl;   // 換行，並且立刻清空輸出緩衝區
+cout << "Hello" << '\n';   // 只換行
+\end{code}
+
+兩者都會換行，差別在 \texttt{endl} 每次還會\textbf{清空緩衝區}
+（flush），把累積的輸出立刻寫出去。 偶爾印幾行看不出差別；在迴圈裡印
+幾十萬行時，每行都 flush 會明顯拖慢程式。 本書一律用
+\texttt{'\textbackslash n'}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{字元做運算後變成整數}：\texttt{char c = 'A';} 之後
+\texttt{cout << c + 1} 印出 \texttt{66}，不是 \texttt{B}。
+\texttt{c + 1} 的型別已經提升成 \texttt{int}，\texttt{cout} 就照整數
+印。 要印字元，寫 \texttt{(char)(c + 1)}。
+\item \textbf{忘了加括號}：\texttt{<<} 的優先順序比比較運算子高，
+\texttt{cout << a < b;} 會被解讀成 \texttt{(cout << a) < b}，編譯失敗。
+要印比較結果，寫 \texttt{cout << (a < b);}。
+\item \textbf{只寫 \texttt{setprecision} 沒寫 \texttt{fixed}}：這時
+\texttt{setprecision(2)} 指的是\textbf{有效數字}兩位，$82.3333$ 會印成
+\texttt{82}。 要固定小數點後幾位，兩個都要寫。
+\end{itemize}
+
+\section{用 \texttt{cin} 輸入}
+\label{sec:cin}
+
+\begin{crecap}[scanf 為什麼要 \&]
+C 的函式參數是傳值：函式拿到的是引數的複本，改複本不會影響呼叫者的變
+數。 \texttt{scanf} 要把讀到的值寫回你的變數，只能請你把變數的位址交
+給它，它再沿著指標寫進去：
+
+\begin{code}{c}{scanf 收的是位址}
+int n;
+scanf("%d", &n);   // 傳 n 的位址，scanf 透過指標寫入 n
+\end{code}
+
+漏了 \texttt{\&}，\texttt{scanf} 會把 \texttt{n} 裡的垃圾值當成位址去
+寫，結果是未定義行為。 另外，\texttt{scanf} 的回傳值是成功讀到幾個
+項目，讀到檔案結尾時回傳 \texttt{EOF}。
+\end{crecap}
+
+C++ 用 \texttt{cin}（標準輸入）和 \texttt{>>} 讀資料，箭頭方向是從
+\texttt{cin} 流向變數：
+
+\begin{code}{cpp}{cin 的基本用法}
+int n;
+cin >> n;          // 不用寫 &
+int a, b;
+cin >> a >> b;     // 一次讀兩個
+\end{code}
+
+\texttt{cin >> n} 不用寫 \texttt{\&n}，卻一樣能改到 \texttt{n}。 背後
+的機制叫\textbf{參考}（reference），是第~2~章的主題；現在只要記得
+\texttt{cin} 後面直接寫變數名稱。
+
+\texttt{>>} 會先跳過空白、Tab 和換行，再讀一個值，所以數字之間用空白
+還是換行隔開都可以，這點跟 \texttt{scanf("\%d")} 一樣。
+
+\begin{example}[label=ex:cin-sum]{cpp}{(cin\_sum.cpp) 讀 n 個整數，輸出總和與最大值}
+#include <iostream>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+
+    int sum = 0, mx = 0;
+    for (int i = 0; i < n; i++) {
+        int x;
+        cin >> x;
+        sum += x;
+        if (i == 0 || x > mx) {
+            mx = x;
+        }
+    }
+    cout << sum << ' ' << mx << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+3 9 -2 7 4 \\
+}{
+21 9 \\
+}
+
+\subsection{讀到檔案結尾為止}
+
+有些題目不先告訴你有幾筆資料，要一直讀到輸入結束。 C 的寫法是
+\texttt{while (scanf("\%d", \&x) == 1)}。 C++ 的寫法更短：
+
+\begin{example}[label=ex:cin-eof]{cpp}{(cin\_eof.cpp) 讀到輸入結束，輸出筆數與總和}
+#include <iostream>
+using namespace std;
+
+int main() {
+    int x;
+    int cnt = 0;
+    long long sum = 0;
+    while (cin >> x) {
+        cnt++;
+        sum += x;
+    }
+    cout << cnt << ' ' << sum << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+10 20 30 \\
+40 \\
+}{
+4 100 \\
+}
+
+\texttt{cin >> x} 這個運算式本身可以當條件用：讀取成功就是真，讀到結尾
+或讀取失敗就是假，迴圈自然結束。 在終端機手動輸入時，Linux 和 macOS
+按 Ctrl+D、Windows 按 Ctrl+Z 再按 Enter，代表輸入結束。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{箭頭方向寫反}：輸出是 \texttt{cout <<}，輸入是
+\texttt{cin >>}。 箭頭指向資料要去的地方。 寫成 \texttt{cin << x} 會
+編譯失敗。
+\item \textbf{照 C 的習慣寫 \texttt{cin >> \&x}}：\texttt{\&x} 是位址，
+不能拿來存讀進來的值，編譯會失敗。 這類錯誤的訊息常常有幾十行，先看第一
+個 \texttt{error:} 所在的行號，通常就是寫錯的那一行。
+\item \textbf{輸入格式不符就繼續讀}：要讀整數卻碰到 \texttt{abc}，這次
+讀取失敗，\texttt{cin} 進入失敗狀態。 呼叫 \texttt{cin.clear()} 清除
+這個狀態之前，後面的 \texttt{>>} 都不會再讀任何東西。 用 \texttt{while (cin >> x)} 這種寫法，失敗時迴圈會停下來，
+比較不會出事。
+\end{itemize}
+
+\section{輸入加速}
+\label{sec:fast-io}
+
+解題時資料量可能很大，例如一次讀進幾十萬個整數。 這時 \texttt{cin}
+和 \texttt{cout} 的預設設定會拖慢速度，常見的做法是在 \texttt{main} 一
+開頭加兩行：
+
+\begin{code}{cpp}{輸入加速的兩行}
+ios::sync_with_stdio(false);
+cin.tie(nullptr);
+\end{code}
+
+這兩行各自關掉一項預設行為：
+
+\begin{itemize}
+\item \texttt{ios::sync\_with\_stdio(false)}：預設情況下，
+\texttt{cin}／\texttt{cout} 和 C 的 \texttt{scanf}／\texttt{printf}
+保持同步，混著用時順序不會亂。 同步有成本，這行把它關掉。
+\item \texttt{cin.tie(nullptr)}：預設情況下 \texttt{cin} 綁在
+\texttt{cout} 上，每次讀輸入前都會先 flush \texttt{cout}，確保提示文字
+已經印出來。 這行解除綁定。 \texttt{nullptr} 是 C++ 的空指標，相當於
+C 的 \texttt{NULL}，第~\ref{sec:c-in-cpp}~節會再提。
+\end{itemize}
+
+\begin{example}[label=ex:fastio]{cpp}{(fastio.cpp) 加速輸入輸出，逐行印出前綴和}
+#include <iostream>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int n;
+    cin >> n;
+    long long prefix = 0;
+    for (int i = 0; i < n; i++) {
+        int x;
+        cin >> x;
+        prefix += x;
+        cout << prefix << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+3 9 -2 7 4 \\
+}{
+3 \\
+12 \\
+10 \\
+17 \\
+21 \\
+}
+
+輸出用的是 \texttt{'\textbackslash n'} 而不是 \texttt{endl}。 前面那兩
+行省下來的時間，如果每一行都 \texttt{endl} 一次，很容易又被吃回去。
+
+\subsection{常見錯誤}
+
+關掉同步之後，\texttt{cout} 和 \texttt{printf} 各自有自己的緩衝區，
+誰先寫到螢幕上就不再有保證。 下面這段程式在本書測試的環境下，
+\texttt{printf} 那行跑到最後面：
+
+\begin{code}{cpp}{關掉同步後混用 printf（錯誤示範）}
+ios::sync_with_stdio(false);
+cout << "第一行" << '\n';
+printf("第二行\n");
+cout << "第三行" << '\n';
+\end{code}
+
+\iosample{}{
+第一行 \\
+第三行 \\
+第二行 \\
+}
+
+換一個環境，順序可能又不一樣。 規則很簡單：加了這兩行，整支程式就只
+用 \texttt{cin}／\texttt{cout}，不要再混用 \texttt{scanf}／
+\texttt{printf}。
+
+另一個常見錯誤是把這兩行放在已經讀過輸入之後。 它們要在第一次輸入輸出
+之前執行，所以放在 \texttt{main} 的最前面。
+
+\section{C 的寫法在 C++ 裡}
+\label{sec:c-in-cpp}
+
+C++ 幾乎是 C 的超集合：你在 C 學過的語法，絕大部分在 C++ 裡照樣能
+用。 這一節整理需要留意的幾個地方。
+
+\subsection{C 的標頭檔}
+
+C 標準函式庫在 C++ 裡都還在，只是標頭檔換個名字：去掉 \texttt{.h}，前
+面加 \texttt{c}。
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+C & C++ \\
+\midrule
+\texttt{<stdio.h>} & \texttt{<cstdio>} \\
+\texttt{<stdlib.h>} & \texttt{<cstdlib>} \\
+\texttt{<math.h>} & \texttt{<cmath>} \\
+\texttt{<string.h>} & \texttt{<cstring>} \\
+\texttt{<ctype.h>} & \texttt{<cctype>} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{printf}、\texttt{sqrt}、\texttt{strlen} 這些函式的用法都跟 C
+一樣。 寫成 \texttt{<stdio.h>} 通常也編得過，不過 C++ 程式慣用
+\texttt{c} 開頭的版本。
+
+\subsection{\texttt{bool} 是內建型別}
+
+C 要 \texttt{\#include <stdbool.h>} 才有 \texttt{bool}、\texttt{true}、
+\texttt{false}。 在 C++ 裡它們是語言本身的一部分，不用 include。
+
+\subsection{空指標寫 \texttt{nullptr}}
+
+\begin{crecap}[NULL 與 malloc]
+指標不指向任何東西時設成 \texttt{NULL}，使用前先檢查。
+\texttt{malloc} 向 heap 要一塊記憶體，回傳型別是 \texttt{void *}，用完
+要 \texttt{free}：
+
+\begin{code}{c}{C 的動態配置}
+int *a = malloc(5 * sizeof(int));   // void * 自動轉成 int *
+if (a != NULL) {
+    /* 使用 a[0] .. a[4] */
+    free(a);
+}
+\end{code}
+
+C 允許 \texttt{void *} 自動轉成任何物件指標，所以不必轉型。
+\end{crecap}
+
+C++ 有兩處不同：
+
+\begin{itemize}
+\item 空指標建議寫 \texttt{nullptr}。 它是專門給指標用的空值，不會像
+\texttt{NULL} 那樣在某些地方被當成整數 $0$。
+\item C++ 不允許 \texttt{void *} 自動轉成 \texttt{int *}。 上面那行
+\texttt{malloc} 原封不動放進 \texttt{.cpp}，\texttt{g++} 會報
+\texttt{invalid conversion from 'void*' to 'int*'}，要自己加上
+\texttt{(int *)} 轉型。
+\end{itemize}
+
+其實寫 C++ 時很少需要 \texttt{malloc}。 要一段長度可變的陣列，第~3~章
+的 \texttt{vector} 會幫你管記憶體；真的要自己配置，C++ 有
+\texttt{new}／\texttt{delete}，第~4~章再談。 下面的範例只是示範 C 的
+寫法在 C++ 裡還能跑：
+
+\begin{example}[label=ex:c-in-cpp]{cpp}{(c\_in\_cpp.cpp) 在 C++ 裡用 C 的函式庫}
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <iostream>
+using namespace std;
+
+bool isSquare(int n) {
+    int r = (int)sqrt(n);
+    return r * r == n;
+}
+
+int main() {
+    int n = 5;
+    int *a = (int *)malloc(n * sizeof(int));
+    for (int i = 0; i < n; i++) {
+        a[i] = i * i + 9;
+    }
+    for (int i = 0; i < n; i++) {
+        printf("%d:%s ", a[i], isSquare(a[i]) ? "yes" : "no");
+    }
+    printf("\n");
+    free(a);
+
+    int *p = nullptr;
+    if (p == nullptr) {
+        cout << "p 沒有指向任何東西" << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+9:yes 10:no 13:no 18:no 25:yes \\
+p 沒有指向任何東西 \\
+}
+
+這支程式沒有關掉同步，所以 \texttt{printf} 和 \texttt{cout} 混用，順序
+仍然正確。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{把變數取名為 C++ 的關鍵字}：C++ 多了一些 C 沒有的關鍵字，
+例如 \texttt{new}、\texttt{delete}、\texttt{class}、\texttt{this}、
+\texttt{template}。 在 C 裡把變數取名為 \texttt{new} 沒問題，搬到 C++
+就編不過，要改名。
+\item \textbf{以為 C++ 會幫你檢查陣列越界}：C 的陣列在 C++ 裡還是原來
+的陣列，越界一樣是未定義行為，編譯器和執行時都不一定會提醒你。 第~3~
+章的 \texttt{vector} 提供有檢查的存取方式。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch1-exercises}
+
+\begin{drills}[label=drills:ch1]
+\item 預測下面程式的輸出：
+\begin{code}{cpp}{練習：預測輸出}
+#include <iomanip>
+#include <iostream>
+using namespace std;
+
+int main() {
+    cout << fixed << setprecision(1) << 3.14159 << '\n';
+    cout << 2.0 << '\n';
+    cout << 'A' + 1 << ' ' << (char)('A' + 1) << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式編譯失敗，找出原因並用兩種不同的方法修好：
+\begin{code}{cpp}{練習：找錯}
+#include <iostream>
+
+int main() {
+    int n;
+    cin >> n;
+    cout << n * 2 << '\n';
+    return 0;
+}
+\end{code}
+\item 寫一支程式：讀入兩個整數 $a$、$b$（$b \neq 0$），分三行輸出
+$a + b$、$a \times b$，以及 $a / b$ 的實數結果（小數點後三位）。 輸入
+\texttt{7 2} 時應輸出 \texttt{9}、\texttt{14}、\texttt{3.500}。
+\item 一支程式開頭加了 \texttt{ios::sync\_with\_stdio(false);}，後面
+同時用了 \texttt{cout} 和 \texttt{printf}。 可能會出什麼問題？ 該怎麼
+改？
+\item 寫一支程式：不斷讀入整數直到輸入結束，輸出讀到幾個數，以及它們的
+平均（小數點後兩位），兩者以空白隔開。 輸入 \texttt{3 4 8} 時應輸出
+\texttt{3 5.00}。 讀不到任何數時輸出 \texttt{0}。
+\item 為什麼大量輸出時建議用 \texttt{'\textbackslash n'} 而不是
+\texttt{endl}？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出三行：\texttt{3.1}、\texttt{2.0}、\texttt{66 B}。
+\texttt{fixed} 和 \texttt{setprecision(1)} 設定後一直有效，所以
+\texttt{2.0} 也印一位小數；\texttt{'A' + 1} 是 \texttt{int}，印出
+$66$，轉回 \texttt{char} 才印 \texttt{B}。
+\item \texttt{cin}、\texttt{cout} 在 \texttt{std} 裡，沒寫
+\texttt{std::}，編譯器找不到。 改法一：寫成 \texttt{std::cin}、
+\texttt{std::cout}。 改法二：在 \texttt{\#include} 下面加
+\texttt{using namespace std;}（或 \texttt{using std::cin;} 與
+\texttt{using std::cout;}）。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答}
+#include <iomanip>
+#include <iostream>
+using namespace std;
+
+int main() {
+    int a, b;
+    cin >> a >> b;
+    cout << a + b << '\n';
+    cout << a * b << '\n';
+    cout << fixed << setprecision(3) << (double)a / b << '\n';
+    return 0;
+}
+\end{code}
+要先把 \texttt{a} 轉成 \texttt{double} 再除，否則 \texttt{7 / 2} 是整
+數除法，得到 $3$。
+\item 關掉同步後，\texttt{cout} 和 \texttt{printf} 各用各的緩衝區，輸出
+順序可能跟程式碼順序不同。 改法是整支程式只用 \texttt{cout}（或者拿掉
+那一行，保留同步）。
+\item 一種寫法：
+\begin{code}{cpp}{練習 5 參考解答}
+#include <iomanip>
+#include <iostream>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int x, cnt = 0;
+    long long sum = 0;
+    while (cin >> x) {
+        cnt++;
+        sum += x;
+    }
+    if (cnt == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+    cout << cnt << ' ' << fixed << setprecision(2) << (double)sum / cnt << '\n';
+    return 0;
+}
+\end{code}
+\item \texttt{endl} 除了換行，每次還會 flush 緩衝區；印很多行時，每行都
+flush 會拖慢程式。 \texttt{'\textbackslash n'} 只換行，讓輸出累積在緩衝
+區裡一次寫出去。
+\end{enumerate}

@@ -1,0 +1,75 @@
+\documentclass[12pt]{report}
+
+% ---------------------------------------------------------------
+% 字型與中文排版
+% ---------------------------------------------------------------
+% 作者在 macOS 上用 Times New Roman／Songti TC／PingFang TC；
+% 其他系統（例如 Linux）找不到這些字型時，改用 TeX Gyre Termes 與
+% Noto Serif／Sans CJK TC，同一份原始碼兩邊都能編。
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\IfFontExistsTF{Times New Roman}
+    {\setmainfont{Times New Roman}}
+    {\setmainfont{TeX Gyre Termes}}
+\IfFontExistsTF{Songti TC}
+    {\setCJKmainfont{Songti TC}}
+    {\setCJKmainfont{Noto Serif CJK TC}}
+\IfFontExistsTF{PingFang TC}
+    {\setCJKsansfont{PingFang TC}}
+    {\setCJKsansfont{Noto Sans CJK TC}}
+% 等寬字用 Latin Modern Mono。它不是系統字型，只在 TeX Live 樹裡；
+% 用「檔名＋副檔名」讓 XeTeX 透過 kpathsea 找檔案，不寫死 TeX Live
+% 的年份路徑。
+\setmonofont{lmmono10-regular}[
+    Extension = .otf,
+    AutoFakeBold = 2.5,
+]
+
+% ---------------------------------------------------------------
+% 本書排版套件（packages/ 目錄）
+% ---------------------------------------------------------------
+\usepackage{sleek}
+\usepackage{sleek-theorems}
+\usepackage{sleek-code}
+\usepackage{sleek-diagrams}
+\usepackage{sleek-recap}
+% 注意：sleek-listings.sty 不載入——它是舊版 lstlistings/inconsolata 排版套件，
+% 本書實際用的是 sleek-code.sty 的 minted 版 code/example 環境，兩者同時載入會讓
+% minted 抓不到 \setmonofont 設定的等寬字（回退成 Latin Modern Roman），
+% 且會讓程式碼裡的直引號被轉成全形彎引號。
+
+% 章節標題中文化：「第 N 章」
+\usepackage{titlesec}
+\titleformat{\chapter}{\normalfont\huge\bfseries}{第~\thechapter~章}{1em}{}
+\titlespacing*{\chapter}{0pt}{-20pt}{20pt}
+
+% 行內程式碼（\texttt）不能斷行，段落裡出現較長的識別字時容易凸出右邊界；
+% 允許 TeX 多拉開一點字距來排版。
+\setlength{\emergencystretch}{3em}
+
+\title{C++ 程式設計：給學過 C 的人}
+\author{林子祐}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\romantableofcontents
+
+% ---------------------------------------------------------------
+% 各章內容放在 "chapters/<單元>/chapter.tex"。
+% 尚未動筆的章先註解掉，整本書才編得過。
+% ---------------------------------------------------------------
+
+\input{chapters/01_FromCToCpp/chapter}
+% \input{chapters/02_ReferencesAndFunctions/chapter}
+% \input{chapters/03_StringAndVector/chapter}
+% \input{chapters/04_Lifetime/chapter}
+% \input{chapters/05_Classes/chapter}
+% \input{chapters/06_OperatorOverloading/chapter}
+% \input{chapters/07_InheritanceAndPolymorphism/chapter}
+% \input{chapters/08_TemplatesAndSTL/chapter}
+% \input{chapters/09_IteratorsAndAlgorithms/chapter}
+% \input{chapters/10_BridgeToAPCS/chapter}
+
+\end{document}
