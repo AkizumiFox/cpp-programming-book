@@ -1,0 +1,790 @@
+\chapter{string 與 vector}
+\label{ch:string-and-vector}
+
+C 的字串是以 \texttt{'\textbackslash 0'} 結尾的 \texttt{char} 陣列，陣列
+的長度在宣告時就定死了；要一段會變長的陣列，得自己 \texttt{malloc}、
+\texttt{realloc}、\texttt{free}。 這兩件事在 C++ 裡分別交給標準函式庫的
+\texttt{string} 和 \texttt{vector}：它們自己管記憶體，用起來像一般的變
+數，可以指定、相加、比較，也可以用第~2~章的參考傳進函式。
+
+這一章前半講 \texttt{string}：基本操作、找子字串與數字轉換，以及讀一整
+行時最常踩的陷阱。 後半講 \texttt{vector}：怎麼建立和增減元素、怎麼走訪
+和傳給函式，最後用 \texttt{vector<vector<int>>} 處理二維的格子。
+
+\section{\texttt{string}：會自己管記憶體的字串}
+\label{sec:string}
+
+\begin{crecap}[char 陣列與 \texttt{'\textbackslash 0'}]
+C 沒有字串型別。 字串只是一個約定：一串 \texttt{char}，最後放一個
+\texttt{'\textbackslash 0'} 表示結束。 \texttt{char a[8] = "Ada";} 佔
+$8$ 個位元組，用到前 $4$ 個（\texttt{A}、\texttt{d}、\texttt{a}、
+\texttt{'\textbackslash 0'}）。 \texttt{<string.h>} 的函式都靠這個
+\texttt{'\textbackslash 0'} 找結尾，也都不知道陣列實際有多大：
+
+\begin{code}{c}{C 字串常見的三個坑}
+char a[8] = "Ada";
+strcat(a, " Lovelace");     // 需要 13 個位元組，a 只有 8 個
+size_t n = strlen(a);       // 從頭數到 '\0'，每呼叫一次就數一次
+if (a == "Ada") { /* ... */ }  // 比的是兩個位址，不是內容
+\end{code}
+
+\texttt{strcpy}、\texttt{strcat} 寫超過陣列大小是未定義行為，空間夠不夠
+要自己算；\texttt{strlen} 每次都從頭數；比較內容要用
+\texttt{strcmp(a, "Ada") == 0}，寫 \texttt{==} 比的是位址，\texttt{gcc
+-Wall} 只會警告 \texttt{comparison with string literal results in
+unspecified behavior}。
+\end{crecap}
+
+C++ 的 \texttt{string}（在 \texttt{<string>} 裡，全名
+\texttt{std::string}）把字元和長度一起包起來，空間不夠時自己去要更大的
+記憶體。 上面三件事在 C++ 裡都變成一般的運算子：
+
+\begin{example}[label=ex:string-basics]{cpp}{(string\_basics.cpp) 建立、相加、比較字串}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    string first = "Ada";
+    string last("Lovelace");
+    string full = first + " " + last;
+    cout << full << ' ' << full.size() << '\n';
+
+    full += "!";
+    full[0] = 'a';
+    cout << full << ' ' << full.size() << '\n';
+
+    string a = "apple", b = "banana";
+    cout << (a == "apple") << ' ' << (a < b) << '\n';
+
+    string line(10, '-');
+    string empty;
+    cout << line << ' ' << empty.size() << ' ' << empty.empty() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Ada Lovelace 12 \\
+ada Lovelace! 13 \\
+1 1 \\
+---------- 0 1 \\
+}
+
+逐項看：
+
+\begin{itemize}
+\item \textbf{建立}：\texttt{string first = "Ada";} 和 \texttt{string
+last("Lovelace");} 都是用字串常數建立。 \texttt{string line(10, '-')}
+是 $10$ 個 \texttt{'-'}。 什麼都不給的 \texttt{string empty;} 是空字串，
+不是垃圾值。
+\item \textbf{相加}：\texttt{+} 接起兩個字串，產生一個新字串；
+\texttt{+=} 接在原字串後面。 不用先算空間夠不夠。
+\item \textbf{長度}：\texttt{full.size()} 回傳字元數，不含結尾的
+\texttt{'\textbackslash 0'}。 \texttt{string} 自己記著長度，呼叫
+\texttt{size()} 不用從頭數。 \texttt{empty()} 判斷是不是空字串。
+\item \textbf{下標}：\texttt{full[0]} 跟 C 的陣列一樣，取第 $0$ 個字元，
+型別是 \texttt{char}，可以讀也可以改。
+\item \textbf{比較}：\texttt{==}、\texttt{!=}、\texttt{<}、\texttt{>}
+比的是內容，順序跟 \texttt{strcmp} 一樣是逐字元比的字典順序，所以
+\texttt{"apple" < "banana"} 是真。 兩邊只要有一邊是 \texttt{string}，
+另一邊可以是字串常數。
+\end{itemize}
+
+\texttt{s.size()} 這種寫法是呼叫 \texttt{s} 的\textbf{成員函式}
+（member function），意思是「對 \texttt{s} 做 \texttt{size} 這件事」。
+成員函式怎麼寫是第~5~章的內容，現在會呼叫就好。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{兩個字串常數相加}：
+\texttt{string s = "Hello, " + "world";} 編譯失敗：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: invalid operands of types 'const char [8]' and 'const char [6]' to binary 'operator+'
+\end{code}
+\texttt{"Hello, "} 和 \texttt{"world"} 都還是 C 的字串常數（\texttt{char}
+陣列），不是 \texttt{string}，兩個陣列不能相加。 \texttt{+} 的兩邊至少要
+有一個 \texttt{string}，例如 \texttt{string("Hello, ") + "world"}，或者
+直接把兩個常數寫在一起。 範例裡的 \texttt{first + " " + last} 沒問題，
+因為是從左邊算起，\texttt{first + " "} 已經是 \texttt{string}。
+\item \textbf{用 \texttt{int} 跟 \texttt{size()} 比較}：
+\texttt{for (int i = 0; i < s.size(); i++)} 編得過，但 \texttt{-Wall} 會
+警告 \texttt{comparison of integer expressions of different signedness}：
+\texttt{size()} 回傳的是無號整數，\texttt{i} 是有號的。 迴圈變數改用 \texttt{size\_t}，或寫成
+\texttt{i < (int)s.size()}；第~\ref{sec:range-for}~節的寫法連下標都不用。
+\item \textbf{以為 \texttt{s[i]} 會檢查範圍}：不會。 \texttt{s[100]}
+越界跟 C 陣列一樣是未定義行為。 要檢查可以用 \texttt{s.at(100)}，
+第~\ref{sec:vector}~節介紹 \texttt{vector} 時一起說明。
+\end{itemize}
+
+\section{找子字串與數字轉換}
+\label{sec:string-ops}
+
+處理字串常做的事是切出一段、找某個字元或子字串的位置，以及字串和數字
+互轉。 C 要靠 \texttt{strncpy}、\texttt{strstr}、\texttt{atoi}、
+\texttt{sprintf}；\texttt{string} 有對應的成員函式，\texttt{<string>} 裡
+也有轉換函式：
+
+\begin{example}[label=ex:string-ops]{cpp}{(string\_ops.cpp) 拆日期字串，年份加一}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    string date = "2026-11-15";
+    string year = date.substr(0, 4);
+    string month = date.substr(5, 2);
+    cout << year << '/' << month << '/' << date.substr(8) << '\n';
+
+    cout << date.find('-') << ' ' << date.find('-', 5) << '\n';
+    cout << date.find("11") << '\n';
+    if (date.find('x') == string::npos) {
+        cout << "沒有 x" << '\n';
+    }
+
+    int y = stoi(year);
+    string next = to_string(y + 1) + date.substr(4);
+    cout << next << '\n';
+    cout << stod("3.75") * 2 << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+2026/11/15 \\
+4 7 \\
+5 \\
+沒有 x \\
+2027-11-15 \\
+7.5 \\
+}
+
+\begin{itemize}
+\item \texttt{s.substr(pos, len)}：從位置 \texttt{pos} 開始，取
+\texttt{len} 個字元，回傳一個新字串。 省略 \texttt{len} 就取到結尾，所
+以 \texttt{date.substr(8)} 是 \texttt{"15"}。
+\item \texttt{s.find(x)}：從頭找 \texttt{x} 第一次出現的位置，\texttt{x}
+可以是字元或字串。 \texttt{s.find(x, from)} 從位置 \texttt{from} 開始
+找，所以 \texttt{date.find('-', 5)} 跳過第一個 \texttt{-}，找到第二個。
+\item 找不到時回傳 \texttt{string::npos}。 \texttt{find} 的回傳型別是
+\texttt{size\_t}，\texttt{npos} 是它能表示的最大值，不是任何合法的位置；
+判斷有沒有找到，一律跟它比。
+\item \texttt{stoi(s)}、\texttt{stod(s)}、\texttt{stoll(s)} 把字串轉成
+\texttt{int}、\texttt{double}、\texttt{long long}，對應 C 的
+\texttt{atoi}、\texttt{atof}、\texttt{atoll}。 \texttt{to\_string(x)}
+反過來把數字轉成字串。
+\end{itemize}
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{把 \texttt{find} 的結果直接當條件}：
+\texttt{if (s.find('a'))} 想問「有沒有 \texttt{a}」，但 \texttt{find}
+回傳的是位置。 \texttt{s} 是 \texttt{"apple"} 時，\texttt{a} 在位置
+$0$，條件是假；找不到時回傳 \texttt{npos}，條件反而是真。 要寫
+\texttt{if (s.find('a') != string::npos)}。
+\item \textbf{\texttt{stoi} 的字串不是數字}：\texttt{stoi("abc")} 不會
+像 \texttt{atoi} 那樣回傳 $0$，而是讓程式中止：
+\begin{code}{text}{執行時的訊息}
+terminate called after throwing an instance of 'std::invalid_argument'
+  what():  stoi
+\end{code}
+這是 C++ 的\textbf{例外}（exception）機制：函式遇到沒辦法處理的情況時
+「丟出」一個例外，沒人接住，程式就結束。 例外怎麼接住本書不談，現在只
+要知道 \texttt{stoi} 的輸入開頭必須是數字。 開頭是數字、後面接著別的字
+元時，\texttt{stoi} 只轉前面的數字，\texttt{stoi("42abc")} 是 $42$。
+\item \textbf{\texttt{substr} 的起點超出長度}：\texttt{date.substr(20)}
+也會丟出例外（\texttt{std::out\_of\_range}），訊息裡寫著
+\texttt{\_\_pos (which is 20) > this->size() (which is 10)}。
+\texttt{len} 超過剩下的長度則沒關係，取到結尾為止。
+\end{itemize}
+
+\section{讀一整行：\texttt{getline}}
+\label{sec:getline}
+
+\texttt{cin >> s} 讀進一個 \texttt{string} 時，跟讀數字一樣先跳過空白，
+再讀到下一個空白或換行為止，所以一次只讀一個「詞」。 輸入裡有空白（例如
+姓名、一句話）時，要改用 \texttt{getline(cin, s)}：從目前的位置讀到行
+尾，把換行字元丟掉，其餘全部放進 \texttt{s}。 它對應 C 的
+\texttt{fgets}，但不用擔心緩衝區大小，結果裡也沒有 \texttt{'\textbackslash
+n'}。
+
+\begin{example}[label=ex:getline-demo]{cpp}{(getline\_demo.cpp) >> 讀一個詞，getline 讀到行尾}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    string first, rest, line;
+    cin >> first;
+    getline(cin, rest);
+    getline(cin, line);
+    cout << '[' << first << ']' << '\n';
+    cout << '[' << rest << ']' << '\n';
+    cout << '[' << line << ']' << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+Ada Lovelace \\
+Alan Mathison Turing \\
+}{
+{[}Ada] \\
+{[} Lovelace] \\
+{[}Alan Mathison Turing] \\
+}
+
+輸出加上方括號，才看得出空白在哪裡。 \texttt{cin >> first} 讀到
+\texttt{Ada} 就停在空白前面；接下來的 \texttt{getline} 從那個空白開始讀，
+所以 \texttt{rest} 是 \texttt{" Lovelace"}，前面帶一個空白。 第二個
+\texttt{getline} 才讀到第二行。 重點是：\texttt{getline} 讀的是「目前這
+一行剩下的部分」，不是「下一行」。
+
+\subsection{\texttt{>>} 後面接 \texttt{getline} 的陷阱}
+
+題目常常先給一個數字 $n$，再給 $n$ 行資料。 直接照順序寫：
+
+\begin{code}{cpp}{先讀 n 再讀 n 行（錯誤示範）}
+int n;
+cin >> n;
+for (int i = 0; i < n; i++) {
+    string name;
+    getline(cin, name);
+    cout << i + 1 << ": [" << name << "]\n";
+}
+\end{code}
+
+\iosample{
+2 \\
+Ada Lovelace \\
+Alan Turing \\
+}{
+1: [] \\
+2: [Ada Lovelace] \\
+}
+
+第一行的 \texttt{2} 後面還有一個換行。 \texttt{cin >> n} 讀完 \texttt{2}
+就停下，換行留在輸入裡；第一次 \texttt{getline} 讀到的是「第一行剩下的
+部分」，也就是空字串。 結果每一行都錯開一格，最後一行沒讀到。 C 的
+\texttt{scanf("\%d")} 後面接 \texttt{fgets} 也有一模一樣的問題。
+
+修法是在 \texttt{getline} 之前把留下來的換行吃掉，在 \texttt{cin >> n;}
+後面加一行：
+
+\begin{code}{cpp}{跳過 n 後面的換行}
+cin >> ws;
+\end{code}
+
+加上這行，同樣的輸入就會印出 \texttt{1: [Ada Lovelace]} 和
+\texttt{2: [Alan Turing]}。
+\texttt{cin >> ws} 跳過所有空白字元（空白、Tab、換行），停在下一個不是空
+白的字元前面。 它會連空行和下一行開頭的空白一起跳過；如果資料本身可能是
+空行，改寫成一次 \texttt{getline(cin, rest);}，把 \texttt{n} 那一行剩下
+的部分讀掉丟棄。
+
+要一直讀到輸入結束，跟第~1~章的 \texttt{while (cin >> x)} 一樣，寫
+\texttt{while (getline(cin, line))}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{\texttt{>>} 和 \texttt{getline} 混用，沒處理換行}：如上面
+的錯誤示範。 只用 \texttt{>>}，或只用 \texttt{getline}，都沒有這個問題；
+兩種混用時，從 \texttt{>>} 換到 \texttt{getline} 的地方要先吃掉換行。
+\item \textbf{中文字的 \texttt{size()}}：\texttt{string s = "王小明";}
+的 \texttt{s.size()} 是 $9$，不是 $3$。 \texttt{string} 存的是位元組，\texttt{size()}
+算的也是位元組；在 UTF-8 編碼下，一個中文字通常佔 $3$ 個位元組。 同樣
+地，\texttt{s[0]} 只是第一個中文字的第一個位元組，不是一個完整的字。
+\end{itemize}
+
+\section{\texttt{vector}：會自己長大的陣列}
+\label{sec:vector}
+
+\begin{crecap}[固定大小的陣列與 realloc]
+C 的陣列大小在宣告時決定，之後不能改。 資料筆數事先不知道時，要不就開一個
+「應該夠大」的陣列（\texttt{int a[100000];}），要不就自己用
+\texttt{malloc} 配置，滿了再 \texttt{realloc} 加大：
+
+\begin{code}{c}{C 的動態陣列}
+int cap = 4, n = 0;
+int *a = malloc(cap * sizeof(int));
+int x;
+while (scanf("%d", &x) == 1) {
+    if (n == cap) {                  // 滿了，容量加倍
+        cap *= 2;
+        int *tmp = realloc(a, cap * sizeof(int));
+        if (tmp == NULL) { free(a); return 1; }
+        a = tmp;
+    }
+    a[n++] = x;
+}
+/* 使用 a[0] .. a[n-1] */
+free(a);
+\end{code}
+
+要記住目前有幾個（\texttt{n}）、空間有多大（\texttt{cap}），
+\texttt{realloc} 要用暫存指標接，最後還不能忘了 \texttt{free}。
+\end{crecap}
+
+C++ 的 \texttt{vector}（在 \texttt{<vector>} 裡）就是把上面這套做好的
+動態陣列。 宣告時在角括號裡寫元素型別：\texttt{vector<int>} 是一串
+\texttt{int}，\texttt{vector<string>} 是一串 \texttt{string}。 這種寫法
+叫\textbf{模板}（template），第~8~章再談；現在把 \texttt{vector<int>}
+整個當成一個型別名稱就好。
+
+\begin{example}[label=ex:vector-basics]{cpp}{(vector\_basics.cpp) 讀到輸入結束，倒著印出來}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v;
+    int x;
+    while (cin >> x) {
+        v.push_back(x);
+    }
+    cout << v.size() << '\n';
+
+    for (int i = (int)v.size() - 1; i >= 0; i--) {
+        cout << v[i] << ' ';
+    }
+    cout << '\n';
+
+    v[0] = 100;
+    cout << v.front() << ' ' << v.back() << '\n';
+    v.pop_back();
+    cout << v.size() << ' ' << v.back() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 9 -2 \\
+7 4 \\
+}{
+5 \\
+4 7 -2 9 3 \\
+100 4 \\
+4 7 \\
+}
+
+跟 C 的版本對照：
+
+\begin{itemize}
+\item \texttt{vector<int> v;} 一開始是空的，\texttt{size()} 是 $0$。
+\item \texttt{v.push\_back(x)} 把 \texttt{x} 加在最後面。 空間不夠時
+\texttt{vector} 自己配置更大的記憶體、把舊資料搬過去，就是 C 版本裡
+\texttt{realloc} 那一段。
+\item \texttt{v.size()} 是目前的元素個數，對應 C 版本的 \texttt{n}。
+\item \texttt{v[i]} 跟陣列一樣用下標存取。 \texttt{v.front()}、
+\texttt{v.back()} 是第一個和最後一個元素，\texttt{v.pop\_back()} 刪掉
+最後一個；這三個都不能用在空的 \texttt{vector} 上。
+\item 不用 \texttt{free}。 \texttt{v} 離開它的範圍時，記憶體會自動還回
+去，第~4~章會說明這是怎麼做到的。
+\end{itemize}
+
+倒著走的迴圈寫成 \texttt{(int)v.size() - 1}，先轉成 \texttt{int} 再減。
+\texttt{size()} 是無號整數，\texttt{v} 是空的時候 \texttt{v.size() - 1}
+不是 $-1$，而是 \texttt{18446744073709551615}（在 \texttt{size\_t} 是
+$64$ 位元的環境下），迴圈會從一個巨大的下標開始。
+
+\subsection{建立時就給大小}
+
+已經知道要幾個元素時，建立時直接給大小，之後用下標填值。 另外有兩個成員
+函式可以整批改變內容：\texttt{resize} 改變長度，\texttt{assign} 整個換掉。
+註解寫的是執行完那一行之後的內容：
+
+\begin{code}{cpp}{建立 vector 的幾種寫法，resize 與 assign}
+vector<int> a(3);          // 0 0 0
+vector<int> b(3, 7);       // 7 7 7
+vector<int> c = {3, 1, 4}; // 3 1 4
+c.resize(5);               // c: 3 1 4 0 0（變長，補 0）
+c.resize(2);               // c: 3 1（變短，後面的丟掉）
+b.assign(4, 9);            // b: 9 9 9 9（整個換掉）
+\end{code}
+
+和 C 的區域陣列不同，\texttt{vector<int> a(3)} 的元素一定是 $0$，不會是
+垃圾值。 \texttt{c.at(1)} 跟 \texttt{c[1]} 一樣取第 $1$ 個元素，差別在
+越界時的反應。 \texttt{c[5]} 不檢查，跟 C 陣列一樣是未定義行為；
+\texttt{c.at(5)} 會檢查，越界時丟出例外，程式中止並印出：
+
+\begin{code}{text}{執行時的訊息}
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  vector::_M_range_check: __n (which is 5) >= this->size() (which is 2)
+\end{code}
+
+\texttt{string} 也有 \texttt{at()}，行為相同。 \texttt{at()} 每次多做一次
+檢查，所以解題時通常用 \texttt{[]}；程式結果怪怪的、懷疑有越界時，把
+\texttt{[]} 暫時換成 \texttt{at()}，就能抓到是哪一個下標出錯。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{對空的 \texttt{vector} 用下標指定}：
+\begin{code}{cpp}{還沒有元素就寫入（錯誤示範）}
+vector<int> v;
+for (int i = 0; i < 3; i++) {
+    v[i] = i * 10;
+}
+\end{code}
+\texttt{v} 的大小是 $0$，\texttt{v[0]} 根本不存在。 \texttt{[]} 不會幫你
+新增元素，這是越界寫入；在本書測試的環境下，這段程式執行時直接當掉
+（Segmentation fault）。 要嘛用 \texttt{push\_back}，要嘛建立時就給大小
+\texttt{vector<int> v(3);}。
+\item \textbf{給了大小又 \texttt{push\_back}}：\texttt{vector<int> w(3);}
+之後 \texttt{w.push\_back(5);}，\texttt{w} 有 $4$ 個元素：
+\texttt{0 0 0 5}。 \texttt{push\_back} 一定加在現有元素的後面。 兩種寫法
+選一種：先給大小就用下標填，從空的開始就用 \texttt{push\_back}。
+\end{itemize}
+
+\section{走訪 vector 與傳給函式}
+\label{sec:range-for}
+
+用下標走訪要寫 \texttt{for (size\_t i = 0; i < v.size(); i++)}，有點長。
+只是要從頭到尾看過每個元素時，C++ 有更短的\textbf{範圍 for 迴圈}
+（range-based for），寫成 \texttt{for (int x : v) \{ ... \}}，讀作「對
+\texttt{v} 裡的每一個 \texttt{x}」。 每一輪 \texttt{x} 依序是
+\texttt{v[0]}、\texttt{v[1]}、……，不用下標，也不會越界。 這種迴圈也能
+用在 \texttt{string} 上，每一輪拿到一個 \texttt{char}。
+
+要注意的是 \texttt{x} 怎麼宣告。 \texttt{int x} 是\textbf{複本}，跟傳值
+的參數一樣，改 \texttt{x} 不影響 \texttt{v}。 要修改元素，就用第~2~章
+的參考：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+寫法 & \texttt{x} 是什麼 & 用在 \\
+\midrule
+\texttt{for (int x : v)} & 元素的複本 & 只讀，元素是 \texttt{int} 這類小型別 \\
+\texttt{for (int \&x : v)} & 元素本身的參考 & 要修改元素 \\
+\texttt{for (const string \&s : v)} & 唯讀的參考 & 只讀，元素是 \texttt{string} 這類大型別 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+選法跟第~2~章決定參數怎麼宣告完全一樣。 型別也可以寫 \texttt{auto}：
+\texttt{for (auto \&x : v)}、\texttt{for (const auto \&s : names)}。
+
+\texttt{vector} 和 \texttt{string} 傳給函式時，也照第~2~章的原則：只讀就
+用 \texttt{const} 參考，要修改就用參考。 傳值會把整個 \texttt{vector} 複
+製一份，元素一多就很浪費。
+
+\begin{example}[label=ex:vector-pass]{cpp}{(vector\_pass.cpp) 範圍 for 迴圈與傳 vector 給函式}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+void print(const vector<int> &v) {
+    for (int x : v) {
+        cout << x << ' ';
+    }
+    cout << '\n';
+}
+
+void addAll(vector<int> &v, int d) {
+    for (int &x : v) {
+        x += d;
+    }
+}
+
+vector<int> evens(const vector<int> &v) {
+    vector<int> result;
+    for (int x : v) {
+        if (x % 2 == 0) {
+            result.push_back(x);
+        }
+    }
+    return result;
+}
+
+int main() {
+    vector<int> v = {3, 1, 4, 1, 5, 9, 2, 6};
+    addAll(v, 1);
+    print(v);
+    print(evens(v));
+
+    vector<string> names = {"Ada", "Alan", "Grace"};
+    for (const string &name : names) {
+        cout << name << ' ' << name.size() << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+4 2 5 2 6 10 3 7 \\
+4 2 2 6 10 \\
+Ada 3 \\
+Alan 4 \\
+Grace 5 \\
+}
+
+\begin{itemize}
+\item \texttt{addAll} 要改呼叫者的 \texttt{vector}，參數是
+\texttt{vector<int> \&}；迴圈也要改元素，寫 \texttt{int \&x}。 兩個
+\texttt{\&} 缺一個，\texttt{main} 裡的 \texttt{v} 就不會變。
+\item \texttt{evens} 回傳一個新的 \texttt{vector}。 C 的函式不能回傳陣
+列，只能請呼叫者先準備好空間；C++ 可以直接回傳 \texttt{vector}。 回傳
+函式裡的區域 \texttt{vector} 時，編譯器通常會把它直接交給呼叫者，不會再
+把元素逐一複製一遍，放心這樣寫。
+\item \texttt{names} 的元素是 \texttt{string}，用 \texttt{const string \&}
+走訪，每一輪不用複製字串。
+\end{itemize}
+
+範圍 for 迴圈背後用的是\textbf{迭代器}（iterator），排序、搜尋這些現成
+的演算法也是用迭代器來指定範圍，例如 \texttt{sort(v.begin(), v.end())}。
+這些留到第~8、9~章。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{想修改卻用複本走訪}：\texttt{for (int x : v) \{ x *= 10; \}}
+編得過，\texttt{-Wall -Wextra} 也不會警告，但改的是每一輪的複本，
+\texttt{v} 完全沒變。 要改元素就寫 \texttt{int \&x}。
+\item \textbf{函式參數漏了 \texttt{\&}}：\texttt{void addAll(vector<int>
+v, int d)} 一樣編得過，改的是整份複本。 跟第~2~章的 \texttt{addBonus}
+是同一個錯誤。
+\item \textbf{走訪時增刪元素}：在 \texttt{for (int x : v)} 的迴圈裡對
+\texttt{v} 做 \texttt{push\_back} 是未定義行為。 \texttt{push\_back} 可
+能讓 \texttt{vector} 換一塊更大的記憶體、把元素搬過去，迴圈手上指向舊記
+憶體的東西就失效了；之前用參考綁定的元素（例如 \texttt{int \&first =
+v[0];}）也一樣。 這件事跟物件的生命週期有關，第~4~章再仔細談。 現在先記
+住：要邊走邊加元素，改用下標迴圈，或者把要加的東西先放進另一個
+\texttt{vector}。
+\end{itemize}
+
+\section{二維 vector}
+\label{sec:vector-2d}
+
+\texttt{vector} 的元素型別可以是任何型別，包括另一個 \texttt{vector}。
+\texttt{vector<vector<int>>} 是「一串 \texttt{vector<int>}」，也就是一
+個二維的格子：\texttt{g[i]} 是第 $i$ 列（一個 \texttt{vector<int>}），
+\texttt{g[i][j]} 是第 $i$ 列第 $j$ 個元素，下標寫法跟 C 的二維陣列一樣。
+
+建立一個 $r$ 列 $c$ 行、全部是 $0$ 的格子，寫成
+\texttt{vector<vector<int>> g(r, vector<int>(c, 0));}。 外層是「$r$ 個元素，每個都是 \texttt{vector<int>(c, 0)}」，也就是
+\texttt{vector<int> b(n, val)} 的寫法套了兩層。 \texttt{r}、\texttt{c}
+可以是執行時才讀進來的變數。 列數是 \texttt{g.size()}，行數是
+\texttt{g[0].size()}。
+
+下面的範例是踩地雷的提示數字：讀入一張地圖，\texttt{*} 是地雷，\texttt{.}
+是空地；在每塊空地上印出周圍八格裡有幾顆地雷。 地圖每一列是一個字串，
+用 \texttt{vector<string>} 存最方便；計數用 \texttt{vector<vector<int>>}。
+
+\begin{example}[label=ex:minesweeper]{cpp}{(minesweeper.cpp) 踩地雷的提示數字}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    int r, c;
+    cin >> r >> c;
+    vector<string> g(r);
+    for (int i = 0; i < r; i++) {
+        cin >> g[i];
+    }
+
+    vector<vector<int>> cnt(r, vector<int>(c, 0));
+    for (int i = 0; i < r; i++) {
+        for (int j = 0; j < c; j++) {
+            if (g[i][j] != '*') {
+                continue;
+            }
+            for (int di = -1; di <= 1; di++) {
+                for (int dj = -1; dj <= 1; dj++) {
+                    int ni = i + di, nj = j + dj;
+                    if (ni >= 0 && ni < r && nj >= 0 && nj < c) {
+                        cnt[ni][nj]++;
+                    }
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < r; i++) {
+        for (int j = 0; j < c; j++) {
+            if (g[i][j] == '*') {
+                cout << '*';
+            } else {
+                cout << cnt[i][j];
+            }
+        }
+        cout << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 4 \\
+*... \\
+..*. \\
+.... \\
+}{
+*211 \\
+12*1 \\
+0111 \\
+}
+
+做法是反過來數：每遇到一顆地雷，就把它周圍八格（以及它自己那格，反正
+不會印出來）的計數各加 $1$。 \texttt{ni}、\texttt{nj} 超出邊界的格子跳
+過。 \texttt{vector<string> g(r)} 先建立 $r$ 個空字串，再用 \texttt{>>}
+逐列讀入；\texttt{g[i][j]} 是第 $i$ 個字串的第 $j$ 個字元。
+
+傳給函式時，二維 \texttt{vector} 比 C 的二維陣列好寫。 C 的參數要寫成
+\texttt{int a[][10]}，第二維的大小一定要是常數；\texttt{vector} 直接寫
+\texttt{const vector<vector<int>> \&g}，大小由 \texttt{g.size()} 和
+\texttt{g[0].size()} 取得。 每一列各自是一個 \texttt{vector}，所以長度
+也可以不一樣，例如第 $i$ 列只放 $i + 1$ 個元素的三角形。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{把列數、行數直接寫成兩個數字}：\texttt{vector<vector<int>>
+g(3, 4);} 編譯失敗，錯誤訊息的第一行是
+\begin{code}{text}{編譯器的錯誤訊息}
+error: no matching function for call to 'std::vector<std::vector<int> >::vector(int, int)'
+\end{code}
+後面還有好幾十行。 外層的第二個引數必須是一個 \texttt{vector<int>}，要
+寫成 \texttt{g(3, vector<int>(4))}。
+\item \textbf{只建立了外層}：\texttt{vector<vector<int>> g(r);} 有 $r$
+列，但每一列都是空的 \texttt{vector}，\texttt{g[0][0]} 已經越界。 要嘛
+建立時給每一列大小，要嘛之後對每一列 \texttt{push\_back}。
+\item \textbf{列與行弄反}：\texttt{g(r, vector<int>(c))} 的外層是列。
+寫成 \texttt{g(c, vector<int>(r))} 之後再用 \texttt{g[i][j]}（\texttt{i}
+是列），列數和行數不同時就會越界。 下標也一樣：先列後行。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch3-exercises}
+
+\begin{drills}[label=drills:ch3]
+\item 預測下面程式的輸出：
+\begin{code}{cpp}{練習：預測輸出}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    string s = "banana";
+    cout << s.size() << ' ' << s.find("an") << ' ' << s.find("an", 2) << '\n';
+    cout << s.substr(1, 3) << ' ' << s.substr(3) << '\n';
+    string a = "10", b = "9";
+    cout << (a < b) << ' ' << (stoi(a) < stoi(b)) << '\n';
+    cout << to_string(12) + "3" << ' ' << stoi("12") + 3 << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式要讀入 $n$ 個姓名（姓名中可能有空白），輸出最長的那一個。
+輸入是 \texttt{3}、\texttt{Ada Lovelace}、\texttt{Alan Turing}、
+\texttt{Barbara Liskov} 四行，程式卻輸出 \texttt{Ada Lovelace}。 問題在
+哪裡？ 怎麼改？
+\begin{code}{cpp}{練習：找錯}
+#include <iostream>
+#include <string>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    string longest;
+    for (int i = 0; i < n; i++) {
+        string name;
+        getline(cin, name);
+        if (name.size() > longest.size()) {
+            longest = name;
+        }
+    }
+    cout << longest << '\n';
+    return 0;
+}
+\end{code}
+\item 預測下面程式的輸出。 要讓 \texttt{twice} 真的把 \texttt{v} 的每個
+元素乘以 $2$，要改哪裡？
+\begin{code}{cpp}{練習：誰被改到了}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+void twice(vector<int> v) {
+    for (int &x : v) {
+        x *= 2;
+    }
+}
+
+int main() {
+    vector<int> v = {1, 2, 3};
+    for (int x : v) {
+        x += 1;
+    }
+    twice(v);
+    for (int &x : v) {
+        x -= 1;
+    }
+    for (int x : v) {
+        cout << x << ' ';
+    }
+    cout << '\n';
+    return 0;
+}
+\end{code}
+\item 寫一支程式：讀入 $r$、$c$ 和一個 $r$ 列 $c$ 行的整數矩陣，輸出它
+的轉置（$c$ 列 $r$ 行，原本的第 $i$ 列第 $j$ 行放到第 $j$ 列第 $i$ 行）。
+同一列的數字以一個空白隔開。 輸入 \texttt{2 3}、\texttt{1 2 3}、
+\texttt{4 5 6} 時應輸出 \texttt{1 4}、\texttt{2 5}、\texttt{3 6} 三行。
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出四行：\texttt{6 1 3}、\texttt{ana ana}、\texttt{1 0}、
+\texttt{123 15}。 \texttt{"an"} 第一次出現在位置 $1$，從位置 $2$ 開始找
+則是位置 $3$。 \texttt{substr(1, 3)} 從位置 $1$ 取三個字元，
+\texttt{substr(3)} 取到結尾，剛好都是 \texttt{ana}。 字串比較是字典順序，
+\texttt{'1'} 比 \texttt{'9'} 小，所以 \texttt{"10" < "9"} 是真；轉成整數
+後 $10 < 9$ 是假。 \texttt{to\_string(12) + "3"} 是字串相接，
+\texttt{stoi("12") + 3} 是整數相加。
+\item \texttt{cin >> n} 讀完 \texttt{3} 後，換行留在輸入裡，第一次
+\texttt{getline} 讀到空字串，之後每一行都錯開一格，\texttt{Barbara
+Liskov} 沒有被讀到。 在 \texttt{cin >> n;} 後面加一行
+\texttt{cin >> ws;}（或 \texttt{string rest; getline(cin, rest);}），
+就會輸出 \texttt{Barbara Liskov}。
+\item 輸出 \texttt{0 1 2}。 第一個迴圈的 \texttt{x} 是複本，\texttt{v}
+沒變；\texttt{twice} 是傳值，乘以 $2$ 的是函式自己的複本；只有
+\texttt{int \&x} 的那個迴圈真的改到 \texttt{v}，每個元素減 $1$。 要讓
+\texttt{twice} 生效，把參數改成 \texttt{vector<int> \&v}，這時輸出變成
+\texttt{1 3 5}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 4 參考解答}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int r, c;
+    cin >> r >> c;
+    vector<vector<int>> a(r, vector<int>(c));
+    for (int i = 0; i < r; i++) {
+        for (int j = 0; j < c; j++) {
+            cin >> a[i][j];
+        }
+    }
+
+    for (int j = 0; j < c; j++) {
+        for (int i = 0; i < r; i++) {
+            cout << a[i][j] << (i + 1 < r ? ' ' : '\n');
+        }
+    }
+    return 0;
+}
+\end{code}
+不必真的建出轉置後的矩陣：轉置的第 $j$ 列就是原矩陣的第 $j$ 行，外層迴圈
+走行、內層迴圈走列，照順序印出來就好。 每列最後一個數字後面接換行，其他
+接空白，行尾就不會多出空白。
+\end{enumerate}

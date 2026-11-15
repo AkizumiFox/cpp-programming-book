@@ -7,7 +7,8 @@
 遇到 C 裡較進階的概念（指標、`malloc`/`free`、`struct`、`char[]` 字串），會先用一個「C 回顧」框把 C 的寫法講一遍，再看 C++ 怎麼做。 每一章的範例程式都可以直接用 `g++ -std=c++17 -Wall` 編譯執行，並附有常見錯誤與練習題。
 
 - 第 1 章 PDF：[`output/chapters/01_FromCToCpp.pdf`](output/chapters/01_FromCToCpp.pdf)
-- 第 2 章 PDF（草稿）：[`output/chapters/02_ReferencesAndFunctions.pdf`](output/chapters/02_ReferencesAndFunctions.pdf)
+- 第 2 章 PDF：[`output/chapters/02_ReferencesAndFunctions.pdf`](output/chapters/02_ReferencesAndFunctions.pdf)
+- 第 3 章 PDF（草稿）：[`output/chapters/03_StringAndVector.pdf`](output/chapters/03_StringAndVector.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
@@ -16,7 +17,7 @@
 |---|---|---|
 | 1 | 從 C 到 C++ | 完成 |
 | 2 | 參考與函式 | 完成 |
-| 3 | string 與 vector | 未開始 |
+| 3 | string 與 vector | 草稿 |
 | 4 | 生命週期 | 未開始 |
 | 5 | 類別 | 未開始 |
 | 6 | 運算子多載 | 未開始 |
