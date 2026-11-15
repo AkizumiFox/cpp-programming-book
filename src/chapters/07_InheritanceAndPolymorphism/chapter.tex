@@ -1,0 +1,1149 @@
+\chapter{繼承與多型}
+\label{ch:inheritance}
+
+第~5、6~章的類別各自獨立：\texttt{Account} 是帳戶，\texttt{Fraction} 是
+分數，彼此沒有關係。 實際的程式常有一群「同一種東西的不同版本」：圓和矩
+形都是形狀，汽車和機車都是車。 它們有共同的部分（名字、都能算面積），也有
+各自不同的部分（半徑、寬和高、算面積的公式）。
+
+這一章先用\textbf{繼承}（inheritance）表達「圓是一種形狀」，看衍生類別
+怎麼建立和銷毀。 接著用\textbf{虛擬函式}讓同一行 \texttt{s.area()} 依物件
+實際的型別呼叫不同的函式，這叫\textbf{多型}（polymorphism）。 後半章講抽
+象類別、虛擬解構子，以及怎麼把不同型別的物件放進同一個 \texttt{vector}。
+最後一節講什麼時候不該用繼承。
+
+\section{衍生類別}
+\label{sec:derived}
+
+\begin{crecap}[型別標記與共同開頭]
+C 要表達「圓和矩形都是形狀」，常見的寫法是在結構裡放一個\textbf{型別標
+記}，用 \texttt{switch} 分開處理：
+
+\begin{code}{c}{用型別標記區分形狀}
+enum Kind { CIRCLE, RECT };
+
+struct Shape {
+    enum Kind kind;        /* 型別標記 */
+    const char *name;
+    double a, b;           /* 圓：a 是半徑；矩形：a、b 是寬和高 */
+};
+
+double area(const struct Shape *s) {
+    switch (s->kind) {
+    case CIRCLE: return 3.14159 * s->a * s->a;
+    case RECT:   return s->a * s->b;
+    }
+    return 0;
+}
+\end{code}
+
+\texttt{a}、\texttt{b} 代表什麼，只能靠註解約定。 多一種形狀，就要找出每
+一個對 \texttt{kind} 做 \texttt{switch} 的函式，一個一個補上。
+
+另一種寫法是把共同的部分做成一個結構，放在每種形狀的第一個成員，再把「算
+面積」做成函式指標：
+
+\begin{code}{c}{共同開頭加函式指標}
+struct Shape {
+    const char *name;
+    double (*area)(const struct Shape *self);
+};
+
+struct Circle {
+    struct Shape base;     /* 共同的部分放在第一個成員 */
+    double r;
+};
+
+/* c 是一個 struct Circle，建立時把 c.base.area 設成 circle_area */
+struct Shape *p = (struct Shape *)&c;   /* 第一個成員的位址就是 c 的位址 */
+printf("%s %g\n", p->name, p->area(p)); /* 圓 3.14159 */
+\end{code}
+
+\texttt{circle\_area} 收 \texttt{struct Shape *}，自己轉回
+\texttt{struct Circle *} 再算。 拿到 \texttt{struct Shape *} 的程式不用知
+道它是哪一種形狀，呼叫 \texttt{p->area(p)} 就會執行對應的函式。 代價是到
+處都要強制轉型，函式指標也要自己填，填錯了編譯器不會發現。
+\end{crecap}
+
+C++ 的繼承做的是第二種寫法的前半：把共同的部分寫成一個類別，其他類別「繼
+承」它。 被繼承的叫\textbf{基底類別}（base class），繼承的叫\textbf{衍生
+類別}（derived class）。 函式指標那一半是第~\ref{sec:virtual}~節的虛擬
+函式。
+
+\begin{example}[label=ex:derived]{cpp}{(derived.cpp) Circle 和 Rect 都繼承 Shape}
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Shape {
+public:
+    Shape(const string &name) : name(name) {}
+    const string &getName() const { return name; }
+
+private:
+    string name;
+};
+
+class Circle : public Shape {
+public:
+    Circle(double r) : Shape("圓"), r(r) {}
+    double area() const { return 3.14159 * r * r; }
+
+private:
+    double r;
+};
+
+class Rect : public Shape {
+public:
+    Rect(double w, double h) : Shape("矩形"), w(w), h(h) {}
+    double area() const { return w * h; }
+
+private:
+    double w, h;
+};
+
+int main() {
+    Circle c(1);
+    Rect r(3, 4);
+    cout << c.getName() << ' ' << c.area() << '\n';
+    cout << r.getName() << ' ' << r.area() << '\n';
+
+    const Shape &s = r;        // Rect 也是一個 Shape
+    cout << s.getName() << '\n';
+    // s.area();               // 編譯失敗：Shape 沒有 area
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+圓 3.14159 \\
+矩形 12 \\
+矩形 \\
+}
+
+\begin{itemize}
+\item \texttt{class Circle : public Shape} 表示 \texttt{Circle} 繼承
+\texttt{Shape}。 每個 \texttt{Circle} 物件裡都有一份 \texttt{Shape}（跟
+C 的 \texttt{base} 成員一樣），再加上自己的 \texttt{r}。
+\texttt{Shape} 的 \texttt{public} 成員函式也變成 \texttt{Circle} 的，所以
+可以寫 \texttt{c.getName()}。
+\item 建構子不會繼承。 \texttt{Circle} 的建構子在初始化列表寫
+\texttt{Shape("圓")}，用 \texttt{Shape} 的建構子建立裡面那一份
+\texttt{Shape}，再建立自己的成員 \texttt{r}。
+\item \texttt{name} 是 \texttt{Shape} 的 \texttt{private} 成員。
+\texttt{Circle} 的物件裡有它，但 \texttt{Circle} 的成員函式不能直接用，只
+能透過 \texttt{getName()}。 \texttt{private} 對衍生類別也一樣有效，
+\texttt{Shape} 的不變量還是只要檢查 \texttt{Shape} 自己的函式。
+\item \texttt{const Shape \&s = r;} 把 \texttt{Rect} 綁到 \texttt{Shape}
+的參考上，同樣可以寫 \texttt{Shape *p = \&r;}。 這就是 C 回顧框裡的
+\texttt{(struct Shape *)\&c}，只是不用轉型，編譯器知道
+\texttt{Rect} 是一種 \texttt{Shape}。 反過來不行：\texttt{Shape} 不一定是
+\texttt{Rect}。
+\item 透過 \texttt{s} 只能用 \texttt{Shape} 有的成員。 \texttt{s.area()}
+報 \texttt{'const class Shape' has no member named 'area'}。 讓
+\texttt{s.area()} 能用、而且呼叫到 \texttt{Rect} 的 \texttt{area}，是
+第~\ref{sec:virtual}~節的內容。
+\end{itemize}
+
+\texttt{public} 繼承的意思是「\texttt{Circle} 是一種 \texttt{Shape}」
+（is-a）：任何需要 \texttt{Shape} 的地方，都可以交給它一個
+\texttt{Circle}。 決定要不要用繼承時，先問這句話說不說得通。
+第~\ref{sec:composition}~節會再回來談這件事。
+
+\subsection{\texttt{protected}}
+
+衍生類別有時候需要碰基底類別的內部，但又不想開放給所有人。 這時用第三種
+存取標籤 \texttt{protected}（保護）：\texttt{protected} 成員對外面的程式跟
+\texttt{private} 一樣，衍生類別的成員函式卻可以用。 例如在 \texttt{Shape}
+加一段 \texttt{protected: void setName(const string \&n) \{ name = n; \}}，
+\texttt{Circle} 的成員函式就可以呼叫 \texttt{setName("單位圓")}，
+\texttt{main} 裡的 \texttt{c.setName(...)} 則編譯失敗。
+
+\texttt{protected} 也可以用在成員變數上，例如把 \texttt{name} 直接標成
+\texttt{protected}。 一般不建議這樣做：任何人寫一個衍生類別，就能任意改
+\texttt{name}，要確認不變量就得檢查所有衍生類別。 成員變數維持
+\texttt{private}，需要時開 \texttt{protected} 的成員函式。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{漏寫 \texttt{public}}：寫成 \texttt{class Circle : Shape}，
+\texttt{class} 預設的繼承方式是 \texttt{private}，\texttt{Shape} 的成員在
+外面全都不能用了。 \texttt{c.getName()} 報兩行：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: 'const std::string& Shape::getName() const' is inaccessible within this context
+error: 'Shape' is not an accessible base of 'Circle'
+\end{code}
+\texttt{private} 繼承很少用到。 本書所有的繼承都是 \texttt{public}，記得
+每次都寫出來。
+\item \textbf{衍生類別直接用基底的 \texttt{private} 成員}：在
+\texttt{Circle} 裡寫 \texttt{void rename() \{ name = "圓形"; \}}，報
+\texttt{'std::string Shape::name' is private within this context}。 改用
+\texttt{Shape} 提供的函式。
+\item \textbf{沒有呼叫基底的建構子}：把 \texttt{Circle} 的初始化列表寫成
+\texttt{: r(r)}，編譯器會改用 \texttt{Shape} 的預設建構子，但
+\texttt{Shape} 沒有，報 \texttt{no matching function for call to
+'Shape::Shape()'}。 寫成 \texttt{: name("圓"), r(r)} 也不行，衍生類別的
+初始化列表只能寫基底類別和自己的成員，報
+\texttt{class 'Circle' does not have any field named 'name'}。
+\end{itemize}
+
+\section{建構與解構的順序}
+\label{sec:inherit-order}
+
+第~4~章看過，區塊裡的物件依宣告順序建立，以相反順序銷毀；第~5~章看過，成
+員在建構子本體執行之前就建立好了。 有了繼承，衍生類別的物件裡有三個部分：
+基底類別那一份、自己的成員、建構子本體。 下面的 \texttt{Tracer} 跟第~4~章
+的一樣，建立和銷毀時各印一行：
+
+\begin{example}[label=ex:inherit-order]{cpp}{(inherit\_order.cpp) 基底、成員、本體的順序}
+#include <iostream>
+#include <string>
+using namespace std;
+
+struct Tracer {
+    string name;
+    Tracer(const string &n) : name(n) { cout << "建立 " << name << '\n'; }
+    ~Tracer() { cout << "銷毀 " << name << '\n'; }
+};
+
+class Base {
+public:
+    Base() : part("Base 的成員") { cout << "Base 建構子本體" << '\n'; }
+    ~Base() { cout << "Base 解構子本體" << '\n'; }
+
+private:
+    Tracer part;
+};
+
+class Derived : public Base {
+public:
+    Derived() : part("Derived 的成員") { cout << "Derived 建構子本體" << '\n'; }
+    ~Derived() { cout << "Derived 解構子本體" << '\n'; }
+
+private:
+    Tracer part;
+};
+
+int main() {
+    {
+        Derived d;
+        cout << "--- d 建好了 ---" << '\n';
+    }
+    cout << "main 結束" << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+建立 Base 的成員 \\
+Base 建構子本體 \\
+建立 Derived 的成員 \\
+Derived 建構子本體 \\
+--- d 建好了 --- \\
+Derived 解構子本體 \\
+銷毀 Derived 的成員 \\
+Base 解構子本體 \\
+銷毀 Base 的成員 \\
+main 結束 \\
+}
+
+建立 \texttt{d} 時，先建立基底類別那一份（\texttt{Base} 自己也是先成員、
+後本體），再依宣告順序建立 \texttt{Derived} 自己的成員，最後執行
+\texttt{Derived} 建構子的本體。
+
+銷毀時剛好反過來：先執行 \texttt{Derived} 解構子的本體，銷毀
+\texttt{Derived} 的成員，最後才輪到 \texttt{Base} 那一份。 道理跟第~4~章一
+樣：後建立的可能用到先建立的。 \texttt{Derived} 的建構子本體執行時，基底
+和成員都已經建好，可以放心使用；\texttt{Derived} 的解構子本體執行時，它們
+也都還在。
+
+衍生類別的解構子不用、也不能自己呼叫基底的解構子，編譯器會在最後自動呼叫。
+建構子則要在初始化列表選一個基底的建構子（上一節的 \texttt{Shape("圓")}），
+沒寫的話就用基底的預設建構子；範例裡的 \texttt{Base} 只有預設建構子，所以
+不用寫。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以為初始化列表的順序決定建立順序}：把 \texttt{Derived} 的初
+始化列表寫成 \texttt{: part("Derived 的成員"), Base()}，執行結果完全相同，
+基底類別一定最先建立。 \texttt{-Wall} 會警告 \texttt{'Derived::part' will
+be initialized after}，下一行是 \texttt{base 'Base'}。 跟第~5~章的成員
+順序一樣，初始化列表照「基底、成員宣告順序」來排。
+\item \textbf{在解構子裡自己呼叫基底的解構子}：在 \texttt{\textasciitilde
+Derived()} 裡寫 \texttt{Base::\textasciitilde Base();}，\texttt{Base} 的解
+構子會執行兩次。 \texttt{Base} 管著資源的話，就是第~5~章的重複釋放。
+\end{itemize}
+
+\section{虛擬函式}
+\label{sec:virtual}
+
+範例~\ref{ex:derived} 裡，透過 \texttt{Shape} 的參考不能呼叫
+\texttt{area}，因為 \texttt{Shape} 沒有這個函式。 我們想要的是 C 回顧框
+裡函式指標的效果：寫一個只認得 \texttt{Shape} 的函式，傳進圓就用圓的公式，
+傳進矩形就用矩形的公式。
+
+做法是在基底類別宣告 \texttt{area}，前面加上 \texttt{virtual}，成為
+\textbf{虛擬函式}（virtual function）。 衍生類別寫一個同名、參數和
+\texttt{const} 都一樣的函式，叫\textbf{覆寫}（override）。 下面的範例另外
+放了一個沒有 \texttt{virtual} 的 \texttt{hello}，用來對照：
+
+\begin{example}[label=ex:virtual]{cpp}{(virtual.cpp) 虛擬函式與一般函式}
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Shape {
+public:
+    Shape(const string &name) : name(name) {}
+    const string &getName() const { return name; }
+    virtual double area() const { return 0; }                 // 虛擬函式
+    void hello() const { cout << "Shape 的 hello" << '\n'; }  // 一般函式
+
+private:
+    string name;
+};
+
+class Circle : public Shape {
+public:
+    Circle(double r) : Shape("圓"), r(r) {}
+    double area() const override { return 3.14159 * r * r; }
+    void hello() const { cout << "Circle 的 hello" << '\n'; }
+
+private:
+    double r;
+};
+
+class Rect : public Shape {
+public:
+    Rect(double w, double h) : Shape("矩形"), w(w), h(h) {}
+    double area() const override { return w * h; }
+
+private:
+    double w, h;
+};
+
+void report(const Shape &s) {
+    cout << s.getName() << ' ' << s.area() << '\n';
+}
+
+int main() {
+    Circle c(1);
+    Rect r(3, 4);
+    report(c);
+    report(r);
+
+    Shape *p = &c;
+    p->hello();                // 一般函式：看 p 的型別
+    c.hello();
+    p = &r;
+    cout << p->area() << '\n'; // 虛擬函式：看 p 指著的物件
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+圓 3.14159 \\
+矩形 12 \\
+Shape 的 hello \\
+Circle 的 hello \\
+12 \\
+}
+
+\texttt{report} 只知道參數是 \texttt{Shape}，\texttt{s.area()} 卻分別呼叫
+了 \texttt{Circle} 和 \texttt{Rect} 的版本。 這裡要分兩種型別：
+
+\begin{itemize}
+\item \textbf{靜態型別}：變數宣告的型別，編譯時就知道。 \texttt{s} 的靜態
+型別是 \texttt{const Shape \&}，\texttt{p} 是 \texttt{Shape *}。
+\item \textbf{動態型別}：參考綁著的、指標指著的物件實際的型別，執行時才知
+道。 第一次呼叫 \texttt{report} 時 \texttt{s} 的動態型別是
+\texttt{Circle}，第二次是 \texttt{Rect}。
+\end{itemize}
+
+一般函式看靜態型別，所以 \texttt{p->hello()} 呼叫 \texttt{Shape} 的
+\texttt{hello}，就算 \texttt{p} 指著 \texttt{Circle}。 虛擬函式透過參考或
+指標呼叫時看動態型別，執行時才決定呼叫哪一個，這叫\textbf{動態繫結}
+（dynamic binding）。 同一行 \texttt{s.area()} 依物件不同而有不同的行為，
+就是多型。
+
+\texttt{Circle} 的 \texttt{hello} 跟 \texttt{Shape} 的同名，但
+\texttt{Shape} 的不是虛擬函式，所以這只是另一個函式，把基底的
+\texttt{hello} 遮住了。 \texttt{c.hello()} 用的是 \texttt{Circle} 的，透過
+\texttt{Shape *} 用的是 \texttt{Shape} 的，同一個物件兩種行為，容易搞混。
+不要在衍生類別重新定義基底的一般函式。
+
+\subsection{\texttt{override} 與 \texttt{final}}
+
+衍生類別的 \texttt{area} 後面寫了 \texttt{override}。 它不改變程式的行
+為，只是告訴編譯器「這個函式要覆寫基底的虛擬函式」。 如果基底沒有一樣的
+虛擬函式可以覆寫，編譯器就報錯。 例如 \texttt{Circle} 的 \texttt{area} 漏
+了 \texttt{const}：
+
+\begin{code}{text}{編譯器的錯誤訊息}
+error: 'double Circle::area()' marked 'override', but does not override
+\end{code}
+
+沒有 \texttt{const} 的 \texttt{area()} 跟有 \texttt{const} 的是兩個不同的
+函式，沒寫 \texttt{override} 的話就會編譯成功，結果是 \texttt{report(c)}
+印出 \texttt{圓 0}（見本節的常見錯誤）。 覆寫虛擬函式時一律寫
+\texttt{override}。 基底類別裡的那一個寫 \texttt{virtual}；衍生類別裡寫了
+\texttt{override} 就不用再寫 \texttt{virtual}，覆寫的函式自動也是虛擬的。
+
+\texttt{final} 禁止再往下覆寫或繼承：函式後面寫 \texttt{final}，衍生類別
+就不能再覆寫它；寫成 \texttt{class Circle final : public Shape}，就不能再
+有類別繼承 \texttt{Circle}，否則報 \texttt{cannot derive from 'final' base
+'Circle'}。 平常不常用。
+
+虛擬函式背後的做法跟 C 回顧框的函式指標差不多：每個有虛擬函式的類別有一
+張函式指標表，每個物件裡藏著一個指向自己類別那張表的指標，呼叫
+\texttt{s.area()} 時先找到表，再從表裡拿出 \texttt{area} 的位址。 代價是
+每個物件多一個指標（本書測試的環境下，只有一個 \texttt{string} 成員的類
+別，加了虛擬函式後 \texttt{sizeof} 從 $32$ 變成 $40$），每次呼叫多查一次
+表，一般的程式不用在意。 表由編譯器填，不會填錯，也不用強制轉型。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{忘了 \texttt{virtual}}：基底的 \texttt{area} 沒有寫
+\texttt{virtual}，衍生類別也沒寫 \texttt{override}，程式照樣編譯成功。
+\texttt{report} 和 \texttt{p->area()} 都用 \texttt{Shape} 的版本，三行都印
+出 $0$。 衍生類別有寫 \texttt{override} 的話，編譯器會報上面的
+\texttt{marked 'override', but does not override}，馬上就發現了。
+\item \textbf{參數或 \texttt{const} 不一樣}：\texttt{Circle} 寫成
+\texttt{double area()}，沒有 \texttt{const}，也沒有 \texttt{override}。 這
+是一個新的函式，沒有覆寫任何東西，\texttt{report(c)} 印出 \texttt{圓 0}。
+\texttt{g++ -Wall} 會警告 \texttt{'virtual double Shape::area() const' was
+hidden [-Woverloaded-virtual=]}，但警告很容易被忽略，寫上
+\texttt{override} 讓它變成錯誤。
+\end{itemize}
+
+\section{抽象類別與虛擬解構子}
+\label{sec:abstract}
+
+範例~\ref{ex:virtual} 的 \texttt{Shape::area} 回傳 $0$，其實是一個沒有意
+義的值：「形狀」本身沒有面積，只有具體的圓或矩形才有。 這種基底類別無法
+提供的函式，可以宣告成\textbf{純虛擬函式}（pure virtual function），在宣
+告後面寫 \texttt{= 0}，不寫本體。
+
+有純虛擬函式的類別叫\textbf{抽象類別}（abstract class），不能直接建立物
+件，只能拿來當基底類別。 衍生類別要覆寫所有純虛擬函式，才能建立物件：
+
+\begin{example}[label=ex:abstract]{cpp}{(abstract.cpp) 抽象類別 Shape}
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Shape {                                   // 抽象類別
+public:
+    Shape(const string &name) : name(name) {}
+    virtual ~Shape() = default;                 // 虛擬解構子，下面說明
+    const string &getName() const { return name; }
+    virtual double area() const = 0;            // 純虛擬函式
+    virtual double perimeter() const = 0;
+
+private:
+    string name;
+};
+
+class Circle : public Shape {
+public:
+    Circle(double r) : Shape("圓"), r(r) {}
+    double area() const override { return 3.14159 * r * r; }
+    double perimeter() const override { return 2 * 3.14159 * r; }
+
+private:
+    double r;
+};
+
+class Rect : public Shape {
+public:
+    Rect(double w, double h) : Shape("矩形"), w(w), h(h) {}
+    double area() const override { return w * h; }
+    double perimeter() const override { return 2 * (w + h); }
+
+private:
+    double w, h;
+};
+
+void report(const Shape &s) {
+    cout << s.getName() << " 面積 " << s.area() << " 周長 " << s.perimeter() << '\n';
+}
+
+int main() {
+    Circle c(1);
+    Rect r(3, 4);
+    report(c);
+    report(r);
+    // Shape s("形狀");                         // 編譯失敗：Shape 是抽象類別
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+圓 面積 3.14159 周長 6.28318 \\
+矩形 面積 12 周長 14 \\
+}
+
+\begin{itemize}
+\item \texttt{Shape} 規定了「每種形狀都要能算面積和周長」，但不說怎麼算。
+\texttt{report} 只依賴這個規定，之後多寫一個三角形，\texttt{report} 一行都
+不用改。 C 回顧框的 \texttt{switch} 版本則要每個函式都補一個
+\texttt{case}。
+\item 拿掉最後一行的註解，\texttt{Shape s("形狀");} 編譯失敗，訊息還列出
+了是哪些函式讓它變成抽象的：
+\begin{code}{text}{編譯器的錯誤訊息}
+error: cannot declare variable 's' to be of abstract type 'Shape'
+note:   because the following virtual functions are pure within 'Shape':
+note:     'virtual double Shape::area() const'
+note:     'virtual double Shape::perimeter() const'
+\end{code}
+\end{itemize}
+
+只有純虛擬函式（加上虛擬解構子）、沒有成員變數的抽象類別，常叫做
+\textbf{介面}（interface），它只規定衍生類別要提供哪些函式。
+
+\subsection{虛擬解構子}
+
+\texttt{Shape} 裡有一行 \texttt{virtual \textasciitilde Shape() = default;}。
+\texttt{= default} 是第~6~章說的「用編譯器產生的版本」，這裡要的是前面那個
+\texttt{virtual}。 原因是物件常常透過基底類別的指標銷毀，例如
+\texttt{unique\_ptr<Shape>} 指著一個 \texttt{Circle}。 \texttt{unique\_ptr}
+銷毀時對它的指標做 \texttt{delete}，這個指標的型別是 \texttt{Shape *}。
+解構子不是虛擬函式的話，\texttt{delete} 就看靜態型別，只呼叫
+\texttt{Shape} 的解構子。 下面的 \texttt{Derived} 有一個 \texttt{vector}
+成員，基底 \texttt{Base} 的解構子沒有 \texttt{virtual}：
+
+\begin{example}[label=ex:vdtor]{cpp}{(vdtor.cpp) 基底的解構子不是 virtual（錯誤示範）}
+#include <iostream>
+#include <memory>
+#include <vector>
+using namespace std;
+
+class Base {
+public:
+    ~Base() { cout << "~Base" << '\n'; }        // 沒有 virtual
+    virtual void work() const { cout << "Base::work" << '\n'; }
+};
+
+class Derived : public Base {
+public:
+    Derived() : buf(1000, 7) {}
+    ~Derived() { cout << "~Derived" << '\n'; }
+    void work() const override { cout << "Derived::work " << buf.size() << '\n'; }
+
+private:
+    vector<int> buf;
+};
+
+int main() {
+    unique_ptr<Base> p = make_unique<Derived>();
+    p->work();
+    return 0;
+}                                               // p 銷毀：delete 一個 Base *
+\end{example}
+
+\iosample{}{
+Derived::work 1000 \\
+\textasciitilde Base \\
+}
+
+\texttt{g++ -Wall -Wextra} 沒有任何警告，執行也沒有當掉，但
+\texttt{\textasciitilde Derived} 沒有印出來：\texttt{Derived} 的解構子沒有
+執行，\texttt{buf} 也就沒有銷毀。 用 ASan 跑：
+
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+Derived::work 1000
+~Base
+==2041472==ERROR: AddressSanitizer: new-delete-type-mismatch on 0x503000000040 in thread T0:
+  object passed to delete has wrong type:
+  size of the allocated type:   32 bytes;
+  size of the deallocated type: 8 bytes.
+    #3 0x5cb786796532 in main vdtor.cpp:26
+
+allocated by thread T0 here:
+    #2 0x5cb786796492 in main vdtor.cpp:23
+\end{code}
+
+\texttt{new-delete-type-mismatch} 是 \texttt{delete} 的型別跟
+\texttt{new} 的不一樣：第 $23$ 行配置的是 $32$ 個位元組的 \texttt{Derived}，
+第 $26$ 行（\texttt{p} 銷毀）卻當成 $8$ 個位元組的 \texttt{Base} 釋放。
+照標準，透過基底指標 \texttt{delete} 衍生類別的物件，而基底的解構子不是虛
+擬的，是未定義行為。 這個例子實際的後果是 \texttt{buf} 那 $4000$ 個位元組
+洩漏了（關掉這項檢查再跑，LeakSanitizer 報的就是
+\texttt{Direct leak of 4000 byte(s)}）。
+
+把第 $8$ 行改成 \texttt{virtual \textasciitilde Base() \{ ... \}}，
+\texttt{delete} 就看動態型別，先呼叫 \texttt{\textasciitilde Derived}，再
+呼叫 \texttt{\textasciitilde Base}（上一節的順序），輸出多一行
+\texttt{\textasciitilde Derived}，ASan 也沒有報告。 規則很簡單：\textbf{有虛
+擬函式的基底類別，解構子一定要是 \texttt{virtual}}。 不需要做事的話，寫
+\texttt{virtual \textasciitilde Shape() = default;} 就好。
+
+第~6~章說過，自己宣告了解構子，編譯器就不產生移動。 虛擬解構子也是，但通
+常沒有關係：多型的物件透過指標使用，不會整個複製或移動（原因見下一節）。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{漏了一個純虛擬函式}：\texttt{Rect} 沒有寫 \texttt{perimeter}，
+它就還是抽象類別，\texttt{Rect r(3, 4);} 報 \texttt{cannot declare variable
+'r' to be of abstract type 'Rect'}，\texttt{note} 列出還沒實作的
+\texttt{'virtual double Shape::perimeter() const'}。
+\item \textbf{以為 \texttt{unique\_ptr} 會處理好}：上面的範例用的就是
+\texttt{unique\_ptr}，照樣只呼叫 \texttt{\textasciitilde Base}。
+\texttt{unique\_ptr} 保證會 \texttt{delete}，但 \texttt{delete} 呼叫哪個解
+構子，要看基底的解構子是不是虛擬的。 如果是自己寫 \texttt{Base *p = new
+Derived; delete p;}，\texttt{-Wall} 會警告 \texttt{deleting object of
+polymorphic class type 'Base' which has non-virtual destructor might cause
+undefined behavior}；包在 \texttt{unique\_ptr} 裡反而看不到這個警告。
+\item \textbf{在建構子或解構子裡呼叫虛擬函式}：\texttt{Base} 的建構子執行
+時，\texttt{Derived} 的部分還沒建立（第~\ref{sec:inherit-order}~節），所以
+這時呼叫虛擬函式，用的是 \texttt{Base} 的版本，不會呼叫到
+\texttt{Derived} 的。 解構子也一樣。 呼叫的是純虛擬函式的話，結果是未定義
+行為。 不要在建構子和解構子裡依賴虛擬函式（本章練習第~1~題）。
+\end{itemize}
+
+\section{用 \texttt{vector<unique\_ptr<Base>>} 存放多型物件}
+\label{sec:poly-container}
+
+C 回顧框的 \texttt{switch} 版本可以把所有形狀放進一個
+\texttt{struct Shape} 陣列。 用繼承之後，圓和矩形是不同的型別，大小也不一
+樣，不能直接放進同一個 \texttt{vector}。 能放進去的是指向它們的指標：
+\texttt{vector<unique\_ptr<Shape>>}。 每個元素都是 \texttt{unique\_ptr<Shape>}，
+指著的物件可以是任何一種形狀。
+
+下面的程式讀入一串形狀，算出總面積和最大的那一個。 \texttt{Shape}、
+\texttt{Circle}、\texttt{Rect} 跟範例~\ref{ex:abstract} 相同：
+
+\begin{example}[label=ex:poly-vector]{cpp}{(shapes.cpp) 把不同的形狀放進同一個 vector}
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+using namespace std;
+
+// Shape、Circle、Rect 同範例 abstract.cpp，這裡省略
+
+unique_ptr<Shape> makeShape(const string &kind) {
+    if (kind == "circle") {
+        double r;
+        cin >> r;
+        return make_unique<Circle>(r);
+    }
+    if (kind == "rect") {
+        double w, h;
+        cin >> w >> h;
+        return make_unique<Rect>(w, h);
+    }
+    return nullptr;
+}
+
+int main() {
+    vector<unique_ptr<Shape>> shapes;
+    string kind;
+    while (cin >> kind) {
+        unique_ptr<Shape> s = makeShape(kind);
+        if (s == nullptr) {
+            break;                              // 不認得的種類就停止讀取
+        }
+        shapes.push_back(std::move(s));
+    }
+
+    double total = 0;
+    const Shape *largest = nullptr;             // 只用來看，不擁有
+    for (const unique_ptr<Shape> &s : shapes) {
+        cout << s->getName() << ' ' << s->area() << '\n';
+        total += s->area();
+        if (largest == nullptr || s->area() > largest->area()) {
+            largest = s.get();
+        }
+    }
+    cout << "總面積 " << total << '\n';
+    if (largest != nullptr) {
+        cout << "最大的是" << largest->getName() << '\n';
+    }
+    return 0;
+}                                               // shapes 銷毀，每個形狀跟著銷毀
+\end{example}
+
+\iosample{
+circle 1 \\
+rect 3 4 \\
+circle 2 \\
+}{
+圓 3.14159 \\
+矩形 12 \\
+圓 12.5664 \\
+總面積 27.708 \\
+最大的是圓 \\
+}
+
+\begin{itemize}
+\item \texttt{makeShape} 依讀到的種類建立不同的物件，回傳型別都是
+\texttt{unique\_ptr<Shape>}。 \texttt{make\_unique<Circle>(r)} 建立的是
+\texttt{unique\_ptr<Circle>}，可以自動轉成 \texttt{unique\_ptr<Shape>}，就
+像 \texttt{Circle *} 可以轉成 \texttt{Shape *}。 這種「依資料決定建立哪個
+衍生類別」的函式，常叫做\textbf{工廠函式}（factory function）。
+\item \texttt{unique\_ptr} 不能複製，所以放進 \texttt{vector} 時要
+\texttt{std::move}（第~4~章），走訪時用 \texttt{const} 參考。
+\texttt{s->area()} 透過指標呼叫虛擬函式，依每個元素實際的型別呼叫。
+\item \texttt{largest} 是一般指標，用 \texttt{s.get()} 取得。 它只是記住
+「最大的是哪一個」，不擁有物件，也不負責 \texttt{delete}；物件仍然由
+\texttt{vector} 裡的 \texttt{unique\_ptr} 擁有。 \texttt{shapes} 還在，
+\texttt{largest} 就有效。
+\item \texttt{shapes} 銷毀時，每個 \texttt{unique\_ptr} 透過
+\texttt{Shape *} 刪除自己的物件；\texttt{Shape} 有虛擬解構子，所以都正確
+銷毀，用 ASan 跑沒有報告。
+\end{itemize}
+
+多一種形狀，只要寫一個新的衍生類別，再在 \texttt{makeShape} 加一個
+\texttt{if}；\texttt{main} 裡的迴圈不用改。
+
+\subsection{物件切割}
+
+如果不用指標，直接寫 \texttt{vector<Shape>} 會怎樣？ \texttt{Shape} 是抽
+象類別的話，編譯器不讓你這樣做。 換成範例~\ref{ex:virtual} 那個不是抽象的
+\texttt{Shape}（\texttt{area} 回傳 $0$），把它的 \texttt{main} 換成下面這
+段（記得 \texttt{\#include <vector>}）：
+
+\begin{code}{cpp}{(slicing.cpp) 用傳值的方式存 Circle 和 Rect（錯誤示範）}
+int main() {
+    Circle c(1);
+    Shape s = c;               // 只複製 c 裡 Shape 的那一部分
+    cout << s.getName() << ' ' << s.area() << '\n';
+
+    vector<Shape> v;
+    v.push_back(c);
+    v.push_back(Rect(3, 4));
+    for (const Shape &x : v) {
+        report(x);
+    }
+    return 0;
+}
+\end{code}
+
+編譯沒有警告，執行結果是 \texttt{圓 0}、\texttt{圓 0}、\texttt{矩形 0} 三
+行，面積全部變成 $0$。 \texttt{Shape s = c;} 建立的是一個
+\texttt{Shape} 物件，用 \texttt{Shape} 的複製建構子，只複製 \texttt{c} 裡
+\texttt{Shape} 的那一部分（\texttt{name}），\texttt{r} 被切掉了。 \texttt{s}
+從頭到尾就是一個 \texttt{Shape}，呼叫的當然是 \texttt{Shape::area}。 這叫
+\textbf{物件切割}（object slicing）。 \texttt{vector<Shape>} 的每個元素也
+都是 \texttt{Shape}，\texttt{push\_back(c)} 一樣只複製 \texttt{Shape} 的部
+分。 傳值的參數 \texttt{void report(Shape s)} 也會切割。
+
+要保留動態型別，就不能複製出新的物件，只能透過參考或指標使用原本的物件：
+參數用 \texttt{const Shape \&}，容器用 \texttt{vector<unique\_ptr<Shape>>}。
+這也是基底類別最好寫成抽象類別的一個理由：\texttt{Shape} 是抽象的時候，
+上面的 \texttt{Shape s = c;} 直接編譯失敗（\texttt{cannot declare variable
+'s' to be of abstract type 'Shape'}），傳值的參數也是
+（\texttt{cannot declare parameter 's' to be of abstract type 'Shape'}）。
+
+\subsection{\texttt{dynamic\_cast}}
+
+偶爾需要知道一個 \texttt{Shape} 實際上是不是 \texttt{Circle}，可以寫
+\texttt{const Circle *c = dynamic\_cast<const Circle *>(s.get());}。
+\texttt{s} 指著的是 \texttt{Circle} 時，\texttt{c} 指向它，可以用
+\texttt{Circle} 自己的成員；不是的話，\texttt{c} 是 \texttt{nullptr}。
+\texttt{dynamic\_cast} 只能用在有虛擬函式的類別上。 程式裡常常需要
+\texttt{dynamic\_cast}，通常表示基底類別少了一個虛擬函式：與其問「你是不是
+圓」再分別處理，不如在 \texttt{Shape} 加一個虛擬函式，讓每種形狀自己處理。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{\texttt{vector<Shape *>} 加上 \texttt{new}}：用一般指標也能做到
+多型，但每個元素都要記得 \texttt{delete}，中途 \texttt{return} 或出例外就洩
+漏，這是第~4~章的問題。 用 \texttt{unique\_ptr}。
+\item \textbf{把 \texttt{s.get()} 交給另一個 \texttt{unique\_ptr}}：
+\texttt{unique\_ptr<Shape> q(shapes[0].get());} 讓兩個
+\texttt{unique\_ptr} 都以為自己擁有同一個物件，最後 \texttt{delete} 兩次。
+\texttt{get()} 取出來的指標只能拿來看。
+\end{itemize}
+
+\section{什麼時候不要用繼承}
+\label{sec:composition}
+
+繼承容易被拿來「重複使用程式碼」：某個類別已經有我要的函式，繼承它就全部
+有了。 下面是一個常見的例子，想要一個堆疊（只能從頂端放入和取出），於是
+直接繼承 \texttt{vector<int>}。 對照的 \texttt{Stack} 則是把
+\texttt{vector} 放成成員，這叫\textbf{組合}（composition）：
+
+\begin{example}[label=ex:stack]{cpp}{(stack.cpp) 繼承 vector 與把 vector 當成員}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+class BadStack : public vector<int> {   // 繼承 vector，不建議
+public:
+    void push(int x) { push_back(x); }
+    void pop() { pop_back(); }
+    int top() const { return back(); }
+};
+
+class Stack {                           // vector 當成員
+public:
+    void push(int x) { data.push_back(x); }
+    void pop() { data.pop_back(); }
+    int top() const { return data.back(); }
+    int size() const { return (int)data.size(); }
+
+private:
+    vector<int> data;
+};
+
+int main() {
+    BadStack b;
+    b.push(1);
+    b.push(2);
+    b[0] = 99;                  // 連堆疊底部都改得到
+    b.push_back(3);
+    cout << b.top() << ' ' << b[0] << ' ' << b.size() << '\n';
+
+    Stack s;
+    s.push(1);
+    s.push(2);
+    s.push(3);
+    s.pop();
+    // s[0] = 99;               // 編譯失敗
+    cout << s.top() << ' ' << s.size() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+3 99 3 \\
+2 2 \\
+}
+
+\begin{itemize}
+\item \texttt{BadStack} 是一種 \texttt{vector}，所以 \texttt{vector} 的
+\texttt{public} 成員函式它全都有：\texttt{b[0] = 99} 改了堆疊最底下的元素，
+\texttt{push\_back} 繞過了 \texttt{push}。 「只能從頂端存取」這條規則，類
+別本身擋不住。
+\item \texttt{Stack} 有一個 \texttt{vector}（has-a），外面只看得到
+\texttt{Stack} 自己開放的四個函式。 \texttt{s[0] = 99} 報 \texttt{no match
+for 'operator[]' (operand types are 'Stack' and 'int')}。 之後想把
+\texttt{vector} 換成別的容器，用 \texttt{Stack} 的程式也不用改。
+\item 標準函式庫的容器沒有虛擬解構子，本來就不是設計來當基底類別的。
+\end{itemize}
+
+判斷的方法是第~\ref{sec:derived}~節那句話：「\texttt{A} 是一種
+\texttt{B}」說得通，而且任何需要 \texttt{B} 的地方交給它一個 \texttt{A} 都
+不會出問題，才用 \texttt{public} 繼承。 只是「\texttt{A} 用到
+\texttt{B}」或「\texttt{A} 有一個 \texttt{B}」，就把 \texttt{B} 放成成員。
+堆疊不是一種 \texttt{vector}，任何 \texttt{vector} 能做的事堆疊都不該做。
+
+\subsection{型別標記加 \texttt{switch} 有時候比較好}
+
+本章開頭 C 回顧框的第一種寫法，在 C++ 裡也不算錯。 型別標記改用
+\texttt{enum class Kind \{ Circle, Rect, Triangle \};}，\texttt{switch} 裡
+沒有 \texttt{default}，只寫了 \texttt{Circle} 和 \texttt{Rect} 兩個
+\texttt{case} 的話，\texttt{g++ -Wall} 會警告 \texttt{enumeration value
+'Triangle' not handled in switch [-Wswitch]}。 多一種形狀時，編譯器會指出
+每一個要補的 \texttt{switch}。 兩種寫法各有適合的情況：
+
+\begin{itemize}
+\item 種類會一直增加，對每個物件做的操作比較固定（例如外掛、遊戲裡的各種
+角色）：用虛擬函式。 多一種，只要多寫一個類別。
+\item 種類固定只有幾種，操作卻會一直增加（例如一個小計算機的運算子種類、
+一份資料只有三種紀錄格式）：用型別標記加 \texttt{switch}。 多一種操作，只
+要多寫一個函式，不用改每個類別。
+\end{itemize}
+
+整體的建議是：先想清楚是不是真的需要多型，需要的話保持繼承階層又淺又
+小，一個抽象的基底類別加上幾個衍生類別，就能處理大部分情況。 只是想重複
+使用程式碼，用組合。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{為了少寫幾行而繼承}：\texttt{class Student : public
+vector<int>}，因為學生「有一些分數」。 學生不是一種 \texttt{vector}，分
+數應該是成員。
+\item \textbf{很深的繼承階層}：\texttt{Shape} 下面有 \texttt{Polygon}，
+下面有 \texttt{Quadrilateral}，下面有 \texttt{Rect}，再下面有
+\texttt{Square}。 讀一個函式要往上翻好幾層才知道它從哪裡來，改基底的一行
+可能影響所有衍生類別。 層數多到要畫圖才看得懂時，通常可以用組合拆開。
+\end{itemize}
+
+\section{本章練習}
+\label{sec:ch7-exercises}
+
+\begin{drills}[label=drills:ch7]
+\item 預測下面程式的輸出。
+\begin{code}{cpp}{練習：建構、虛擬函式與切割}
+#include <iostream>
+using namespace std;
+
+struct A {
+    A() { cout << "A "; hi(); }
+    virtual ~A() { cout << "~A "; }
+    virtual void hi() const { cout << "A.hi "; }
+    void name() const { cout << "A.name "; }
+};
+
+struct B : A {
+    B() { cout << "B "; hi(); }
+    ~B() override { cout << "~B "; }
+    void hi() const override { cout << "B.hi "; }
+    void name() const { cout << "B.name "; }
+};
+
+void call(const A &a) {
+    a.hi();
+    a.name();
+}
+
+int main() {
+    B b;
+    cout << '\n';
+    call(b);
+    b.name();
+    cout << '\n';
+    A a = b;
+    a.hi();
+    cout << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式編譯失敗，\texttt{g++} 報了四個錯誤。 找出原因並改正，讓
+它輸出 \texttt{Lucky: 汪} 和 \texttt{Momo: 喵} 兩行，而且 \texttt{Cat} 仍
+然可以改名。 改到編譯成功之後，還有一個問題是 \texttt{g++} 和 ASan 都不會
+告訴你的，也一起改掉。
+\begin{code}{cpp}{練習：找錯}
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+using namespace std;
+
+class Animal {
+public:
+    Animal(const string &name) : name(name) {}
+    virtual string sound() const = 0;
+    void speak() const { cout << name << ": " << sound() << '\n'; }
+
+private:
+    string name;
+};
+
+class Dog : Animal {
+public:
+    Dog(const string &name) : Animal(name) {}
+    string sound() override { return "汪"; }
+};
+
+class Cat : public Animal {
+public:
+    Cat(const string &name) : Animal(name) {}
+    string sound() const override { return "喵"; }
+    void rename(const string &n) { name = n; }
+};
+
+int main() {
+    vector<unique_ptr<Animal>> pets;
+    pets.push_back(make_unique<Dog>("Lucky"));
+    auto cat = make_unique<Cat>("Mimi");
+    cat->rename("Momo");
+    pets.push_back(std::move(cat));
+    for (const unique_ptr<Animal> &p : pets) {
+        p->speak();
+    }
+    return 0;
+}
+\end{code}
+\item 停車場的收費方式：汽車每小時 $40$ 元；機車每小時 $20$ 元，但最多收
+$100$ 元。 寫一個抽象類別 \texttt{Vehicle}，建構子收停車的時數，提供
+\texttt{getHours()}，以及純虛擬函式 \texttt{kind()}（回傳 \texttt{"汽車"}
+或 \texttt{"機車"}）和 \texttt{fee()}；再寫兩個衍生類別 \texttt{Car} 和
+\texttt{Motorcycle}。 \texttt{main} 每行讀入種類（\texttt{car} 或
+\texttt{moto}）和時數直到輸入結束，不認得的種類略過；全部讀完後，依輸入順
+序印出每一輛的種類、時數和費用，最後印出合計。 輸入
+\begin{code}{text}{練習 3 的輸入}
+car 3
+moto 2
+moto 8
+bus 5
+car 1
+\end{code}
+應該輸出 \texttt{汽車 3 小時 120}、\texttt{機車 2 小時 40}、
+\texttt{機車 8 小時 100}、\texttt{汽車 1 小時 40}、\texttt{合計 300} 五行。
+\item 下面的程式用 \texttt{g++ -Wall -Wextra} 編譯沒有警告，輸出
+\texttt{Ada 990} 和 \texttt{Alan 4990}。 \texttt{Alan} 的是儲蓄帳戶，月底
+應該加 $1\%$ 利息、不扣手續費，變成 $5050$ 才對。 說明原因並改正。
+\begin{code}{cpp}{練習：月底結算}
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+class Account {
+public:
+    Account(const string &owner, int balance) : owner(owner), balance(balance) {}
+    virtual ~Account() = default;
+    void deposit(int amount) { balance += amount; }
+    int getBalance() const { return balance; }
+    virtual void monthEnd() { balance -= 10; }   // 每月手續費 10 元
+    void print() const { cout << owner << ' ' << balance << '\n'; }
+
+private:
+    string owner;
+    int balance;
+};
+
+class Savings : public Account {
+public:
+    Savings(const string &owner, int balance) : Account(owner, balance) {}
+    void monthEnd() override { deposit(getBalance() / 100); }   // 利息 1%，免手續費
+};
+
+int main() {
+    vector<Account> accounts;
+    accounts.push_back(Account("Ada", 1000));
+    accounts.push_back(Savings("Alan", 5000));
+    for (Account &a : accounts) {
+        a.monthEnd();
+    }
+    for (const Account &a : accounts) {
+        a.print();
+    }
+    return 0;
+}
+\end{code}
+\item 下面每一組，判斷應該用 \texttt{public} 繼承、組合（放成成員），還是
+型別標記加 \texttt{switch}，並說明理由。
+\begin{enumerate}
+\item \texttt{Car} 和 \texttt{Engine}（引擎）。
+\item \texttt{Student} 和 \texttt{Person}，程式裡有些函式收
+\texttt{const Person \&}，要能把學生傳進去。
+\item 一個可以改寬和高的 \texttt{Rect}（有 \texttt{setWidth}、
+\texttt{setHeight}），想再寫一個 \texttt{Square}。
+\item \texttt{Queue}（佇列，只能從尾端放入、從前端取出）和
+\texttt{vector<int>}。
+\item 一個記帳程式的每筆紀錄只有「收入」和「支出」兩種，之後會一直加新的
+報表功能（月報、分類統計、匯出）。
+\end{enumerate}
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出四行：\texttt{A A.hi B B.hi }、\texttt{B.hi A.name B.name }、
+\texttt{A.hi }、\texttt{\textasciitilde A \textasciitilde B \textasciitilde A }
+（最後一行沒有換行）。 建立 \texttt{b} 時先建立 \texttt{A} 的部分，這時
+\texttt{B} 的部分還不存在，所以 \texttt{A} 建構子裡的 \texttt{hi()} 呼叫的
+是 \texttt{A.hi}；接著 \texttt{B} 的建構子印 \texttt{B}，這時呼叫
+\texttt{hi()} 才是 \texttt{B.hi}。 \texttt{call(b)} 裡 \texttt{a.hi()} 是
+虛擬函式，看動態型別，印 \texttt{B.hi}；\texttt{a.name()} 不是虛擬函式，
+看靜態型別 \texttt{A}，印 \texttt{A.name}。 \texttt{b.name()} 的靜態型別
+是 \texttt{B}，印 \texttt{B.name}。 \texttt{A a = b;} 是物件切割，用編譯器
+產生的複製建構子（不印東西），\texttt{a} 就是一個 \texttt{A}，所以
+\texttt{a.hi()} 印 \texttt{A.hi}。 \texttt{main} 結束時先銷毀後建立的
+\texttt{a}（\texttt{\textasciitilde A}），再銷毀 \texttt{b}
+（\texttt{\textasciitilde B} 然後 \texttt{\textasciitilde A}）。
+\item 四個錯誤訊息來自三個問題：
+(1) \texttt{class Dog : Animal} 少了 \texttt{public}，是 \texttt{private}
+繼承，\texttt{unique\_ptr<Dog>} 不能轉成 \texttt{unique\_ptr<Animal>}。 這
+個錯誤報在 \texttt{pets.push\_back(...)} 那一行，訊息是
+\texttt{no matching function for call to ...push\_back(...)}，後面的
+\texttt{note} 很長，看不太出原因。 改成 \texttt{class Dog : public Animal}。
+(2) \texttt{Dog::sound} 少了 \texttt{const}，報 \texttt{marked 'override',
+but does not override}。 寫了 \texttt{override}，這個錯誤才被抓到。 因為
+沒有覆寫到，\texttt{Dog} 還是抽象類別，所以第四個錯誤
+\texttt{invalid new-expression of abstract class type 'Dog'}（位置在
+\texttt{unique\_ptr.h}，是 \texttt{make\_unique<Dog>} 裡的 \texttt{new}）
+也是同一個原因。
+(3) \texttt{Cat::rename} 直接改 \texttt{Animal} 的 \texttt{private} 成員
+\texttt{name}。 在 \texttt{Animal} 加一個 \texttt{protected} 的
+\texttt{void setName(const string \&n) \{ name = n; \}}，\texttt{rename}
+改成呼叫 \texttt{setName(n)}。 不要把 \texttt{name} 改成
+\texttt{protected} 或 \texttt{public}。
+還有一個問題：\texttt{Animal} 有虛擬函式，物件透過
+\texttt{unique\_ptr<Animal>} 銷毀，解構子卻不是虛擬的。 這個程式裡
+\texttt{Dog}、\texttt{Cat} 沒有自己的成員，大小跟 \texttt{Animal} 一樣，所以
+ASan 剛好沒有報告，但這仍然是未定義行為；之後替 \texttt{Cat} 加一個
+\texttt{string} 成員，它就會洩漏。 在 \texttt{Animal} 加上
+\texttt{virtual \textasciitilde Animal() = default;}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答（類別部分）}
+class Vehicle {
+public:
+    Vehicle(int hours) : hours(hours) {}
+    virtual ~Vehicle() = default;
+    int getHours() const { return hours; }
+    virtual string kind() const = 0;
+    virtual int fee() const = 0;
+
+private:
+    int hours;
+};
+
+class Car : public Vehicle {
+public:
+    Car(int hours) : Vehicle(hours) {}
+    string kind() const override { return "汽車"; }
+    int fee() const override { return 40 * getHours(); }
+};
+
+class Motorcycle : public Vehicle {
+public:
+    Motorcycle(int hours) : Vehicle(hours) {}
+    string kind() const override { return "機車"; }
+    int fee() const override {
+        int f = 20 * getHours();
+        return f > 100 ? 100 : f;
+    }
+};
+\end{code}
+時數是每輛車都有的，放在 \texttt{Vehicle}，\texttt{private} 加上 getter；
+收費方式每種不同，寫成純虛擬函式。 \texttt{Vehicle} 有虛擬函式，又透過
+\texttt{unique\_ptr<Vehicle>} 銷毀，所以要有虛擬解構子。 \texttt{main} 照範
+例~\ref{ex:poly-vector} 的寫法：寫一個工廠函式 \texttt{makeVehicle(type,
+hours)}，\texttt{"car"} 回傳 \texttt{make\_unique<Car>(hours)}，
+\texttt{"moto"} 回傳 \texttt{make\_unique<Motorcycle>(hours)}，其他回傳
+\texttt{nullptr}；\texttt{while (cin >> type >> hours)} 讀入，不是
+\texttt{nullptr} 才 \texttt{push\_back(std::move(v))} 進
+\texttt{vector<unique\_ptr<Vehicle>> lot}；最後走訪 \texttt{lot}，印出
+\texttt{v->kind()}、\texttt{v->getHours()}、\texttt{v->fee()} 並累加合計。
+
+\item \texttt{vector<Account>} 的元素都是 \texttt{Account}。
+\texttt{push\_back(Savings("Alan", 5000))} 只把 \texttt{Savings} 裡
+\texttt{Account} 的部分複製進去，這是物件切割，元素已經不是
+\texttt{Savings} 了，所以 \texttt{monthEnd} 用的是 \texttt{Account} 的版本，
+扣了 $10$ 元手續費。 \texttt{Account} 不是抽象類別，所以編譯器不會擋。
+改法是元素改存指標：
+\begin{code}{cpp}{練習 4：改用 vector<unique\_ptr<Account>>}
+vector<unique_ptr<Account>> accounts;
+accounts.push_back(make_unique<Account>("Ada", 1000));
+accounts.push_back(make_unique<Savings>("Alan", 5000));
+for (const unique_ptr<Account> &a : accounts) {
+    a->monthEnd();
+}
+for (const unique_ptr<Account> &a : accounts) {
+    a->print();
+}
+\end{code}
+記得 \texttt{\#include <memory>}。 改完輸出 \texttt{Ada 990} 和
+\texttt{Alan 5050}。 第一個迴圈的 \texttt{a} 是 \texttt{const} 參考，但
+\texttt{const} 的是 \texttt{unique\_ptr} 本身（不能改指向誰），不是它指著
+的 \texttt{Account}，所以還是可以呼叫會改餘額的 \texttt{monthEnd}。
+\item
+(a) 組合。 汽車有一個引擎，不是一種引擎，\texttt{Engine} 放成
+\texttt{Car} 的成員。
+(b) \texttt{public} 繼承。 學生是一種人，需要 \texttt{Person} 的地方交給它
+學生也說得通，正好是繼承要表達的關係。
+(c) 不要讓 \texttt{Square} 繼承這個 \texttt{Rect}。 正方形在數學上是一種矩
+形，但這個 \texttt{Rect} 可以只改寬不改高：一個函式收 \texttt{Rect \&}，
+呼叫 \texttt{setWidth(5)} 之後預期高度不變，傳進正方形就出問題（要嘛高度
+跟著變，要嘛它不再是正方形）。 「任何需要 \texttt{Rect} 的地方都能交給它
+一個 \texttt{Square}」不成立。 可以讓 \texttt{Square} 和 \texttt{Rect} 都
+直接繼承 \texttt{Shape}，或者讓形狀建立後不能改大小。
+(d) 組合，跟 \texttt{Stack} 一樣。 佇列不該讓人用 \texttt{[]} 改中間的元
+素。
+(e) 型別標記加 \texttt{switch}。 種類固定只有兩種，會增加的是操作；每多一
+個報表就是多一個函式，用 \texttt{enum class} 的話，漏了哪一種
+\texttt{-Wall} 也會提醒。
+\end{enumerate}

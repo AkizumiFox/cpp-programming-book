@@ -11,7 +11,8 @@
 - 第 3 章 PDF：[`output/chapters/03_StringAndVector.pdf`](output/chapters/03_StringAndVector.pdf)
 - 第 4 章 PDF：[`output/chapters/04_Lifetime.pdf`](output/chapters/04_Lifetime.pdf)
 - 第 5 章 PDF：[`output/chapters/05_Classes.pdf`](output/chapters/05_Classes.pdf)
-- 第 6 章 PDF（草稿）：[`output/chapters/06_OperatorOverloading.pdf`](output/chapters/06_OperatorOverloading.pdf)
+- 第 6 章 PDF：[`output/chapters/06_OperatorOverloading.pdf`](output/chapters/06_OperatorOverloading.pdf)
+- 第 7 章 PDF（草稿）：[`output/chapters/07_InheritanceAndPolymorphism.pdf`](output/chapters/07_InheritanceAndPolymorphism.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
@@ -24,7 +25,7 @@
 | 4 | 生命週期 | 完成 |
 | 5 | 類別 | 完成 |
 | 6 | 運算子多載與複製 | 完成 |
-| 7 | 繼承與多型 | 未開始 |
+| 7 | 繼承與多型 | 草稿 |
 | 8 | 模板與 STL 容器 | 未開始 |
 | 9 | 迭代器與演算法 | 未開始 |
 | 10 | 銜接 APCS 與資料結構 | 未開始 |
