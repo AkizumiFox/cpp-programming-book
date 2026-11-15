@@ -1,0 +1,720 @@
+\chapter{銜接 APCS 與資料結構}
+\label{ch:bridge}
+
+前九章把 C++ 的語法和標準函式庫講完了。 這一章幾乎不再介紹新語法，而是
+把學過的東西用在接下來會遇到的題目上：APCS 這類解題考試，以及大學的資料
+結構與演算法課。
+
+前半章講解題：一支解題程式的基本寫法、怎麼從題目的範圍估計演算法夠不夠快，
+以及最常見的兩種解法，遞迴搜尋和動態規劃。 後半章用指標和類別自己寫一個鏈
+結串列，這是資料結構課的第一個作業常見的形式。 最後整理讀完這本書之後可
+以往哪裡走。
+
+\section{解題程式的基本功}
+\label{sec:contest-basics}
+
+解題程式從標準輸入讀資料、把答案印到標準輸出，評分系統拿你的輸出跟正確答
+案逐字比對。 本書的範例已經是這個形式，固定的部分整理起來是這樣：
+
+\begin{code}{cpp}{解題程式的骨架}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    // 讀入、計算、輸出
+    return 0;
+}
+\end{code}
+
+標頭檔用到什麼就 include 什麼。 網路上的解題程式常寫
+\texttt{\#include <bits/stdc++.h>}，一行包含所有標準標頭檔。 它是
+\texttt{g++} 特有的檔案，不是標準的一部分，換成別的編譯器可能找不到，編譯
+也比較慢。 本書一律列出實際用到的標頭檔，讀程式的人也能從開頭看出這支程
+式用了哪些東西。
+
+輸入加速的兩行是第~1~章的內容，資料量大的題目一定要加，加了之後就不要再
+混用 \texttt{scanf}／\texttt{printf}。
+
+\subsection{從資料範圍估計時間}
+
+題目會寫資料範圍，例如 $n \le 2 \times 10^5$。 這不只是告訴你陣列要開多
+大，也在告訴你需要多快的演算法。 粗略的估計是：評分系統一秒大約能做
+$10^8$ 次簡單運算（加減、比較、存取陣列）。 把 $n$ 的上限代進演算法的時間
+複雜度，算出來在 $10^8$ 左右或更少，通常就來得及：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+$n$ 的上限 & 可以接受的複雜度 & 例子 \\
+\midrule
+$10$ 左右 & $O(n!)$、$O(n \cdot n!)$ & \texttt{next\_permutation} 枚舉 \\
+$20$ 左右 & $O(2^n)$ & 枚舉所有子集合 \\
+$500$ & $O(n^3)$ & 三層迴圈 \\
+$5000$ & $O(n^2)$ & 雙層迴圈、$O(n^2)$ 的動態規劃 \\
+$2 \times 10^5$ & $O(n \log n)$ & 排序、二分搜尋、\texttt{set}、\texttt{map}、\texttt{priority\_queue} \\
+$10^7$ & $O(n)$ & 一個迴圈、\texttt{unordered\_map} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+這張表只是大概：常數大的演算法要打折，時間限制不是一秒也要換算。 但它足
+以在動手之前排除不可能的做法。 下面是一個例子。
+
+題目：給 $n$ 個整數和一個整數 $k$，問有幾對 $i < j$ 滿足
+$a_i + a_j = k$。 $n \le 2 \times 10^5$，$|a_i|, |k| \le 10^9$。
+
+最直接的做法是雙層迴圈檢查每一對，$O(n^2)$。 $n = 2 \times 10^5$ 時大約是
+$2 \times 10^{10}$ 次比較，照上表一定來不及；在本書測試的環境下，加
+\texttt{-O2} 編譯，跑一組 $n = 2 \times 10^5$ 的資料要 $6.7$ 秒左右。 換個
+想法：由左往右讀，讀到 $a_j$ 時，它能和前面每一個等於 $k - a_j$ 的數字配
+成一對。 只要用第~8~章的 \texttt{unordered\_map} 記住前面每個數字出現幾次，
+每個數字就只要 $O(1)$：
+
+\begin{example}[label=ex:pairs]{cpp}{(pairs.cpp) 數有幾對的和等於 k}
+#include <iostream>
+#include <unordered_map>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    long long k;
+    cin >> n >> k;
+    unordered_map<long long, int> seen;   // 前面每個數字出現幾次
+    long long ans = 0;
+    for (int i = 0; i < n; i++) {
+        long long x;
+        cin >> x;
+        auto it = seen.find(k - x);
+        if (it != seen.end()) {
+            ans += it->second;            // 跟前面的 k - x 配對
+        }
+        seen[x]++;
+    }
+    cout << ans << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 7 \\
+3 4 2 5 4 3 \\
+}{
+5 \\
+}
+
+和是 $7$ 的五對是兩個 $3$ 各配兩個 $4$，再加上 $2$ 和 $5$。 同一組
+$n = 2 \times 10^5$ 的資料，這個版本在本書測試的環境下不到 $0.1$ 秒。 查
+詢用 \texttt{find} 而不是 \texttt{seen[k - x]}，避免第~8~章說的「查詢時新
+增鍵」。 \texttt{k - x} 最大可能到 $2 \times 10^9$，超過 \texttt{int}，所以
+數字都用 \texttt{long long}。
+
+\subsection{用檔案測試}
+
+範例輸入通常不只一組，每次都手打很累，也容易打錯。 把輸入存成檔案，執行時
+用 \texttt{<} 讓程式從檔案讀，用 \texttt{>} 把輸出寫進檔案，再跟正確答案比：
+
+\begin{code}{bash}{用檔案測試}
+g++ -std=c++17 -Wall -Wextra pairs.cpp -o pairs
+./pairs < in1.txt > out1.txt
+diff out1.txt ans1.txt
+\end{code}
+
+這是命令列的功能，程式本身照樣用 \texttt{cin}、\texttt{cout}，不用改。
+\texttt{diff} 沒有印出任何東西，就表示兩個檔案完全一樣；Windows 的命令提
+示字元用 \texttt{fc out1.txt ans1.txt}。 自己再補幾組邊界的測資：$n = 1$、
+所有數字都一樣、數字都是最大值。 很多錯誤只在這些情況出現。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{答案超過 \texttt{int}}：把 \texttt{pairs.cpp} 的 \texttt{ans}
+改成 \texttt{int}，輸入 $n = 10^5$ 個 $1$、$k = 2$，正確答案是
+$\binom{10^5}{2} = 4999950000$。 在本書測試的環境下程式印出
+\texttt{704982704}，沒有任何警告。 這是有號整數溢位，屬於未定義行為；加
+\texttt{-fsanitize=undefined} 編譯，執行時會指出是哪一行：
+\begin{code}{text}{用 -fsanitize=undefined 編譯後執行}
+pairs_int.cpp:18:17: runtime error: signed integer overflow: 2147450880 + 65536 cannot be represented in type 'int'
+\end{code}
+寫程式之前先估答案最大可能多大：「幾對」最多是 $n^2 / 2$，總和最多是 $n$
+乘上最大值。 超過 $2 \times 10^9$ 就用 \texttt{long long}。
+\item \textbf{只用範例測資測試}：範例通常很小，$O(n^2)$ 的程式和溢位的程
+式都會通過。 自己用最大的範圍產生一組資料跑跑看，時間和答案都要檢查。
+\item \textbf{評分系統和自己的電腦結果不同}：未定義行為（越界、沒有初始化
+的變數、溢位）在自己的電腦上「剛好對」，到評分系統上就錯了。 交出去之前用
+\texttt{-fsanitize=address,undefined} 跑一次範例測資。
+\end{itemize}
+
+\section{遞迴與深度優先搜尋}
+\label{sec:dfs}
+
+第~8~章用 \texttt{queue} 做了廣度優先搜尋（BFS）。 另一種走遍整張圖的方法
+是\textbf{深度優先搜尋}（depth-first search，DFS）：從一個點出發，能往前走
+就一直往前走，走不下去才退回上一步換個方向。 用遞迴寫最短，「往前走」就是
+呼叫自己，「退回」就是函式回傳。
+
+典型的題目是數地圖上有幾塊陸地。 地圖是 $r$ 列 $c$ 行的格子，\texttt{\#}
+是陸地，\texttt{.} 是水，上下左右相連的陸地算同一塊。 輸出有幾塊陸地，以
+及最大的一塊有幾格：
+
+\begin{example}[label=ex:islands]{cpp}{(islands.cpp) 用遞迴數陸地}
+#include <algorithm>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+// 把 (i, j) 所在的那塊陸地全部改成水，回傳它有幾格
+int sink(vector<string> &g, int i, int j) {
+    int r = g.size(), c = g[0].size();
+    if (i < 0 || i >= r || j < 0 || j >= c || g[i][j] != '#') {
+        return 0;
+    }
+    g[i][j] = '.';                         // 先標記，再往四個方向走
+    return 1 + sink(g, i - 1, j) + sink(g, i + 1, j) +
+           sink(g, i, j - 1) + sink(g, i, j + 1);
+}
+
+int main() {
+    int r, c;
+    cin >> r >> c;
+    vector<string> g(r);
+    for (auto &row : g) {
+        cin >> row;
+    }
+    int count = 0, biggest = 0;
+    for (int i = 0; i < r; i++) {
+        for (int j = 0; j < c; j++) {
+            if (g[i][j] == '#') {
+                count++;
+                biggest = max(biggest, sink(g, i, j));
+            }
+        }
+    }
+    cout << count << ' ' << biggest << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 6 \\
+\#\#..\#. \\
+\#..\#\#. \\
+..\#... \\
+\#\#..\#\# \\
+}{
+5 3 \\
+}
+
+\begin{itemize}
+\item \texttt{sink} 的第一個 \texttt{if} 是遞迴的終止條件：出界、是水、或
+已經走過（已經改成水），就回傳 $0$。 邊界檢查一定要在 \texttt{g[i][j]} 之
+前，\texttt{||} 由左到右求值，出界時不會去讀 \texttt{g[i][j]}。
+\item 進到一格陸地，先把它改成水，再往四個方向遞迴。 改成水同時當作「走過了」
+的記號，這塊陸地之後就不會再被數到，也不會繞回來。
+\item \texttt{main} 掃過每一格，遇到還沒被淹掉的陸地就是新的一塊，呼叫一次
+\texttt{sink} 把整塊淹掉。 每一格最多被處理一次，總時間是 $O(rc)$。
+\item \texttt{g} 用參考傳進去。 所有遞迴呼叫改的都是同一張地圖，這正是這
+個演算法需要的。
+\end{itemize}
+
+寫遞迴時，先寫終止條件，再寫「做一點事，把剩下的交給自己」。 數陸地、走迷
+宮、枚舉組合、樹的走訪，都是這個形狀。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有標記走過的格子}：拿掉 \texttt{g[i][j] = '.';}，兩格相鄰
+的陸地會互相呼叫對方，永遠不會結束。 每次呼叫都佔用一些 stack 空間，用完
+就當掉，在本書測試的環境下是 \texttt{Segmentation fault}。 ASan 會直接說
+是 \texttt{stack-overflow}：
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+==508446==ERROR: AddressSanitizer: stack-overflow on address 0x7ffc9fb2fff8
+    #1 0x64bbc8bc44cb in sink(...) nomark.cpp:9
+\end{code}
+\item \textbf{地圖用傳值}：\texttt{int sink(vector<string> g, int i, int j)}
+編譯沒有警告。 每一層遞迴都複製一整張地圖，標記只改到自己的複本，回到上一
+層就不見了。 範例的輸入在本書測試的環境下輸出 \texttt{11 3}，陸地被重複數
+了；地圖大一點時還會慢到跑不完。 照第~2~章的原則，要修改的參數用參考。
+\item \textbf{遞迴太深}：$1000 \times 1000$ 全是陸地的地圖，遞迴最深可能有
+$10^6$ 層。 本書測試的環境下 stack 是 $8$ MB，範例程式直接
+\texttt{Segmentation fault}，加 \texttt{-O2} 也一樣。 有些評分系統會把
+stack 設得比較大，但不能指望。 格子很多時改用第~8~章的 BFS，把待處理的格子
+放在 \texttt{queue} 裡，它在 heap 上，不受 stack 大小限制（本章練習第~2~
+題）。
+\end{itemize}
+
+\section{動態規劃}
+\label{sec:dp}
+
+\textbf{動態規劃}（dynamic programming，DP）把問題拆成較小的子問題，把每個
+子問題的答案存在表格裡，大問題直接查表組合出來，不必重算。 C 的話表格是陣
+列，大小要事先定好；C++ 用 \texttt{vector}，大小可以依輸入決定，越界時還能
+用 \texttt{at()} 檢查。
+
+這一節的例子是\textbf{最長遞增子序列}（longest increasing subsequence，
+LIS）：從數列裡挑出一些數字，保持原來的先後，而且嚴格遞增，最長可以挑幾
+個？ \texttt{3 1 4 1 5 9 2 6} 的答案是 $4$，例如 \texttt{1 4 5 9}。 下面
+用兩種方法算：
+
+\begin{example}[label=ex:lis]{cpp}{(lis.cpp) 最長遞增子序列的兩種算法}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int lisSlow(const vector<int> &a) {        // O(n^2)
+    int n = a.size(), best = 0;
+    vector<int> dp(n, 1);   // dp[i]：以 a[i] 結尾的最長長度
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < i; j++) {
+            if (a[j] < a[i]) {
+                dp[i] = max(dp[i], dp[j] + 1);
+            }
+        }
+        best = max(best, dp[i]);
+    }
+    return best;
+}
+
+int lisFast(const vector<int> &a) {        // O(n log n)
+    vector<int> tail;   // tail[k]：長度 k + 1 的最小結尾
+    for (int x : a) {
+        auto it = lower_bound(tail.begin(), tail.end(), x);
+        if (it == tail.end()) {
+            tail.push_back(x);   // 比所有結尾都大：最長的再加一
+        } else {
+            *it = x;             // 讓同樣長度的結尾變小
+        }
+    }
+    return tail.size();
+}
+
+int main() {
+    int n;
+    cin >> n;
+    vector<int> a(n);
+    for (int &x : a) {
+        cin >> x;
+    }
+    cout << lisSlow(a) << ' ' << lisFast(a) << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 \\
+3 1 4 1 5 9 2 6 \\
+}{
+4 4 \\
+}
+
+\texttt{lisSlow} 是標準的 DP 寫法，設計時回答三個問題：
+
+\begin{itemize}
+\item \textbf{狀態}：\texttt{dp[i]} 是「最後一個數字是 \texttt{a[i]}」的遞增
+子序列最長有多長。
+\item \textbf{轉移}：\texttt{a[i]} 可以接在任何一個 \texttt{a[j] < a[i]}
+（$j < i$）的子序列後面，所以 \texttt{dp[i]} 是這些 \texttt{dp[j] + 1} 的最
+大值；一個都沒有的話，\texttt{a[i]} 自己就是長度 $1$。
+\item \textbf{順序}：算 \texttt{dp[i]} 時要用到所有 $j < i$ 的
+\texttt{dp[j]}，所以 $i$ 由小到大算。
+\end{itemize}
+
+答案是所有 \texttt{dp[i]} 裡最大的那個，不一定是最後一個。 雙層迴圈，時間
+是 $O(n^2)$，照第~\ref{sec:contest-basics}~節的表，$n$ 到 $5000$ 還可以。
+
+$n = 2 \times 10^5$ 時就要用 \texttt{lisFast}。 它換了一個狀態：
+\texttt{tail[k]} 是「長度 $k + 1$ 的遞增子序列，結尾最小可以是多少」。 結
+尾越小，後面越容易接上新的數字，所以每種長度只要記最小的結尾。
+\texttt{tail} 一定是遞增的，可以用第~9~章的 \texttt{lower\_bound} 找到第一
+個 $\ge x$ 的結尾：找不到，表示 $x$ 比所有結尾都大，可以接在最長的後面；找
+到了，就用 $x$ 取代它，同樣的長度有了更小的結尾。 範例的 \texttt{tail} 依序
+變成 \texttt{3}、\texttt{1}、\texttt{1 4}、\texttt{1 4}、\texttt{1 4 5}、
+\texttt{1 4 5 9}、\texttt{1 2 5 9}、\texttt{1 2 5 6}，長度是 $4$。 每個數字一
+次二分搜尋，總時間 $O(n \log n)$。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{以為 \texttt{tail} 就是那個子序列}：範例最後的
+\texttt{tail} 是 \texttt{1 2 5 6}，但 $2$ 在原數列裡排在 $5$ 後面，它不是一
+個合法的子序列。 \texttt{tail} 只保證\textbf{長度}正確。 要印出子序列本身，
+得另外記下每個數字是接在誰後面。
+\item \textbf{「遞增」和「不下降」用錯函式}：題目允許相等（\texttt{1 3 3 4}
+也算）時，要用 \texttt{upper\_bound}，讓相等的數字可以接在後面。 用錯的話，
+\texttt{2 2 2} 會算出 $1$ 而不是 $3$（本章練習第~4~題）。
+\item \textbf{忘了初始值}：\texttt{vector<int> dp(n);} 的元素都是 $0$，少
+了「自己就是長度 $1$」，每個 \texttt{dp[i]} 都少 $1$。 DP 的表格要想清楚
+最小的子問題是什麼，先填好。
+\end{itemize}
+
+\section{自己實作資料結構：鏈結串列}
+\label{sec:linked-list}
+
+第~8~章的容器都是現成的。 資料結構課則要你自己寫：鏈結串列、堆疊、二元搜
+尋樹，了解它們裡面怎麼運作。 這一節用鏈結串列示範怎麼把 C 的寫法搬到
+C++：節點還是結構加指標，但包進一個類別，用建構子、解構子和模板管理。
+
+\begin{crecap}[鏈結串列]
+鏈結串列的每個節點存一個值和一個指向下一個節點的指標，最後一個節點的
+\texttt{next} 是 \texttt{NULL}：
+
+\begin{code}{c}{C 的鏈結串列}
+struct Node {
+    int value;
+    struct Node *next;
+};
+
+struct Node *pushFront(struct Node *head, int x) {
+    struct Node *node = malloc(sizeof(struct Node));
+    node->value = x;
+    node->next = head;
+    return node;               /* 新的節點變成開頭 */
+}
+
+void freeList(struct Node *head) {
+    while (head != NULL) {
+        struct Node *next = head->next;
+        free(head);
+        head = next;
+    }
+}
+\end{code}
+
+在開頭加入是 $O(1)$，不用像陣列那樣搬動元素。 代價是不能用下標直接跳到第
+$k$ 個，只能從 \texttt{head} 沿著 \texttt{next} 一個一個走。 用完一定要
+呼叫 \texttt{freeList}，忘了就是記憶體洩漏；只寫 \texttt{int} 的版本，要存
+字串就得整份重寫。
+\end{crecap}
+
+C++ 版本把 \texttt{head} 和節點都藏在類別裡，釋放交給解構子：
+
+\begin{example}[label=ex:linked-list]{cpp}{(linked\_list.cpp) 鏈結串列的類別模板}
+#include <iostream>
+#include <string>
+using namespace std;
+
+template <typename T>
+class LinkedList {
+public:
+    LinkedList() = default;
+    LinkedList(const LinkedList &) = delete;      // 不允許複製
+    LinkedList &operator=(const LinkedList &) = delete;
+    ~LinkedList() {
+        while (head != nullptr) {
+            Node *next = head->next;   // 先記下下一個
+            delete head;
+            head = next;
+        }
+    }
+
+    void pushFront(const T &x) {
+        head = new Node{x, head};
+        size_++;
+    }
+    void reverse() {
+        Node *prev = nullptr;
+        while (head != nullptr) {
+            Node *next = head->next;
+            head->next = prev;         // 把箭頭轉向
+            prev = head;
+            head = next;
+        }
+        head = prev;
+    }
+    void print() const {
+        for (Node *p = head; p != nullptr; p = p->next) {
+            cout << p->value << ' ';
+        }
+        cout << '\n';
+    }
+    int size() const { return size_; }
+
+private:
+    struct Node {
+        T value;
+        Node *next;
+    };
+    Node *head = nullptr;
+    int size_ = 0;
+};
+
+int main() {
+    LinkedList<int> a;
+    for (int x : {3, 1, 4, 1, 5}) {
+        a.pushFront(x);
+    }
+    a.print();
+    a.reverse();
+    a.print();
+
+    LinkedList<string> words;
+    words.pushFront("world");
+    words.pushFront("hello");
+    words.print();
+    cout << a.size() << ' ' << words.size() << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+5 1 4 1 3 \\
+3 1 4 1 5 \\
+hello world \\
+5 2 \\
+}
+
+\begin{itemize}
+\item \texttt{Node} 宣告在類別的 \texttt{private} 裡，外面的程式碰不到節點和
+指標，只能用 \texttt{pushFront}、\texttt{reverse} 這些成員函式。 第~5~章
+說的不變量（例如 \texttt{size\_} 一定等於節點個數）就由類別自己維持。
+\item \texttt{new Node\{x, head\}} 配置一個節點，同時用大括號依序給兩個成員
+初值，取代 C 的 \texttt{malloc} 再逐一指定。
+\item 解構子做的就是 C 的 \texttt{freeList}，\texttt{a} 和 \texttt{words}
+離開 \texttt{main} 時自動執行（第~4~章的 RAII）。 用 ASan 跑，沒有洩漏。
+\item 類別自己管理 \texttt{new} 來的記憶體，照第~6~章的規則，複製建構子和
+複製指定要嘛自己寫成深複製，要嘛 \texttt{= delete}。 這裡選擇禁止複製。
+\item \texttt{reverse} 是資料結構課的經典題：不配置新節點，一個一個把
+\texttt{next} 轉向。 \texttt{prev} 是已經轉好的部分的開頭，\texttt{head}
+是還沒處理的部分的開頭。
+\item 改成模板之後，同一份程式可以存 \texttt{int} 也可以存 \texttt{string}。
+\end{itemize}
+
+標準函式庫其實有雙向鏈結串列 \texttt{list}（第~9~章提過），解題時直接用
+它或 \texttt{vector} 就好。 自己寫一次的目的是看懂指標怎麼串起資料；之後
+的二元搜尋樹也是同樣的寫法，只是每個節點有 \texttt{left}、\texttt{right}
+兩個指標。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{刪掉節點之後再讀它的 \texttt{next}}：解構子寫成
+\begin{code}{cpp}{先 delete 再讀 next（錯誤示範）}
+for (Node *p = head; p != nullptr; p = p->next) {
+    delete p;        // 迴圈的 p = p->next 讀的是已經刪掉的節點
+}
+\end{code}
+\texttt{delete p} 之後，\texttt{p->next} 是已經釋放的記憶體。 在本書測試
+的環境下，程式在結束時當掉（Segmentation fault）；ASan 報
+\texttt{heap-use-after-free}，位置在解構子裡。 範例先用 \texttt{next} 記下
+下一個節點，再刪掉目前這個，順序不能反過來。
+\item \textbf{只刪了 \texttt{head}}：解構子只寫 \texttt{delete head;}，其他
+節點沒有指標記得了。 程式照常結束，看不出問題，ASan 在結束時報告洩漏：
+\begin{code}{text}{ASan 的洩漏報告（節錄）}
+==552332==ERROR: LeakSanitizer: detected memory leaks
+SUMMARY: AddressSanitizer: 104 byte(s) leaked in 5 allocation(s).
+\end{code}
+$5$ 個是 \texttt{a} 剩下的 $4$ 個節點和 \texttt{words} 剩下的 $1$ 個。
+\item \textbf{複製串列}：\texttt{LinkedList<int> b = a;} 報
+\texttt{error: use of deleted function 'LinkedList<T>::LinkedList(const
+LinkedList<T>\&) [with T = int]'}。 這正是 \texttt{= delete} 的作用：沒有它
+的話，編譯器產生的複製只複製 \texttt{head} 指標，兩個串列共用同一串節點，
+結束時各刪一次，就是第~5~章的重複釋放。
+\item \textbf{忘了處理空串列}：對空的串列取 \texttt{head->value}，就是透過
+\texttt{nullptr} 讀取，程式當掉。 每個會用到 \texttt{head} 的成員函式，都
+要想一下 \texttt{head} 是 \texttt{nullptr} 時怎麼辦。
+\end{itemize}
+
+\section{讀完這本書之後}
+\label{sec:next}
+
+本書刻意寫短，只講從 C 走到 C++ 一定要補的部分。 接下來可以往三個方向走。
+
+\textbf{解題}：APCS 實作題和各個解題網站常見的主題，像排序與二分搜尋、遞迴與
+枚舉、貪心、動態規劃、BFS 與 DFS、樹與圖，本書已經把需要的語言工具都介紹
+過了，剩下的是演算法本身和大量練習。 練習時照第~\ref{sec:contest-basics}~節
+的習慣：先看資料範圍決定複雜度，估答案會不會超過 \texttt{int}，交出去之前
+自己補邊界測資。
+
+\textbf{資料結構與演算法課}：課本上的鏈結串列、堆疊、佇列、堆積、雜湊表、二
+元搜尋樹、圖，就是第~8~章那些容器的內部。 自己實作時用本章的寫法：節點是結
+構加指標，整個資料結構包成類別模板，用解構子釋放記憶體，禁止或自己寫複製。
+寫完用 ASan 跑一次，確定沒有洩漏和懸置指標。
+
+\textbf{C++ 本身}：本書沒有談的主題還有不少，例如例外的處理（\texttt{try} 和
+\texttt{catch}）、檔案輸入輸出（\texttt{<fstream>}）、更完整的移動語意，以
+及 C++20 之後的新功能。 這些在寫大型程式時才比較常用，需要時再查
+cppreference.com 這類參考資料就好。 遇到看不懂的錯誤訊息，照第~8~章的方法，
+先找 \texttt{error:} 那一行和 \texttt{required from here}。
+
+\section{本章練習}
+\label{sec:ch10-exercises}
+
+\begin{drills}[label=drills:ch10]
+\item 時間限制一秒，估計下面每種做法來不來得及，說明理由。
+\begin{enumerate}
+\item $n \le 2 \times 10^5$，對每個 $i$ 用一個迴圈檢查所有 $j > i$。
+\item $n, q \le 2 \times 10^5$，先排序，每次查詢用 \texttt{lower\_bound}。
+\item $n \le 10$，用 \texttt{next\_permutation} 枚舉所有排列，每個排列花
+$O(n)$ 計算。
+\item $n \le 5000$，$O(n^2)$ 的動態規劃。
+\item $n \le 10^5$，每個 $a_i \le 10^6$，用 \texttt{int} 存所有 $a_i$ 的總和。
+\end{enumerate}
+\item 把範例~\ref{ex:islands} 的 \texttt{sink} 改成用 \texttt{queue} 做 BFS，
+不用遞迴，\texttt{main} 不變。 範例的輸入要輸出 \texttt{5 3}；$1000 \times
+1000$ 全是陸地的地圖要輸出 \texttt{1 1000000}，不能當掉。
+\item （0/1 背包）有 $n$ 件物品，第 $i$ 件的重量是 $w_i$、價值是 $v_i$，
+背包最多能裝重量 $W$。 每件物品最多拿一次，求能裝的最大總價值。
+$n \le 100$，$W \le 10^5$。 輸入
+\begin{code}{text}{練習 3 的輸入}
+4 7
+3 4
+4 5
+2 3
+5 6
+\end{code}
+（第一行是 $n$ 和 $W$，接著每行是一件物品的重量和價值）應該輸出 \texttt{9}。
+提示：\texttt{dp[w]} 是重量不超過 \texttt{w} 時的最大價值。
+\item 讀入 $n$ 和 $n$ 個整數，輸出最長嚴格遞增子序列和最長不下降子序列（允許
+相等）的長度，要求 $O(n \log n)$。 輸入 \texttt{7} 和
+\texttt{1 3 3 2 2 4 1} 時應輸出 \texttt{3 4}。
+\item 替範例~\ref{ex:linked-list} 的 \texttt{LinkedList} 加上
+\texttt{pushBack(x)}（加在尾端，要 $O(1)$）和 \texttt{popFront()}（刪掉第一
+個節點，串列不是空的）。 提示：多記一個指向最後一個節點的 \texttt{tail}。
+下面的程式應該輸出 \texttt{0 1 2}、\texttt{7 8}、\texttt{2} 三行，用 ASan
+跑沒有錯誤：
+\begin{code}{cpp}{練習 5 的 main}
+LinkedList<int> q;
+q.pushBack(1);
+q.pushBack(2);
+q.pushFront(0);
+q.print();
+q.popFront();
+q.popFront();
+q.popFront();
+q.pushBack(7);
+q.pushBack(8);
+q.print();
+cout << q.size() << '\n';
+\end{code}
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item (a) 來不及。 大約 $n^2 / 2 = 2 \times 10^{10}$ 次，是 $10^8$ 的兩百倍。
+(b) 來得及。 排序和查詢都是 $(2 \times 10^5) \times \log_2(2 \times 10^5)
+\approx 3.6 \times 10^6$ 次左右。 (c) 來得及。 $10! \times 10 \approx 3.6
+\times 10^7$。 (d) 來得及。 $5000^2 = 2.5 \times 10^7$。 (e) 時間沒問題，但
+總和最大是 $10^5 \times 10^6 = 10^{11}$，超過 \texttt{int} 的上限（大約
+$2.1 \times 10^9$），要用 \texttt{long long}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 2 參考解答}
+int sink(vector<string> &g, int si, int sj) {
+    int r = g.size(), c = g[0].size();
+    int di[] = {-1, 1, 0, 0};
+    int dj[] = {0, 0, -1, 1};
+    queue<pair<int, int>> q;
+    g[si][sj] = '.';                   // 放進 queue 時就標記
+    q.push({si, sj});
+    int cells = 0;
+    while (!q.empty()) {
+        auto [i, j] = q.front();
+        q.pop();
+        cells++;
+        for (int d = 0; d < 4; d++) {
+            int ni = i + di[d], nj = j + dj[d];
+            if (ni >= 0 && ni < r && nj >= 0 && nj < c &&
+                g[ni][nj] == '#') {
+                g[ni][nj] = '.';
+                q.push({ni, nj});
+            }
+        }
+    }
+    return cells;
+}
+\end{code}
+要另外 include \texttt{<queue>} 和 \texttt{<utility>}。 跟第~8~章迷宮的
+BFS 是同一個迴圈，差別是這裡不需要距離，只要數有幾格。 格子在放進
+\texttt{queue} 的時候就標記成水，同一格才不會被放進去兩次。 \texttt{queue}
+的元素放在 heap 上，$10^6$ 格也不會用完 stack。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, cap;
+    cin >> n >> cap;
+    vector<long long> dp(cap + 1, 0);
+    for (int i = 0; i < n; i++) {
+        int w;
+        long long v;
+        cin >> w >> v;
+        for (int j = cap; j >= w; j--) {   // 由大到小
+            dp[j] = max(dp[j], dp[j - w] + v);
+        }
+    }
+    cout << dp[cap] << '\n';
+    return 0;
+}
+\end{code}
+處理第 $i$ 件物品時，\texttt{dp[j]} 有兩種選擇：不拿，維持原值；拿，就是
+\texttt{dp[j - w] + v}。 \texttt{j} 一定要由大到小：這樣讀到的
+\texttt{dp[j - w]} 還是「沒考慮第 $i$ 件」時的值，每件只會被拿一次。 寫成
+由小到大，\texttt{dp[j - w]} 可能已經拿過這件物品，同一件會被拿好幾次，範
+例會輸出 \texttt{10}（重量 $2$ 的物品拿兩次再加重量 $3$ 的）。 時間是
+$O(nW) = 10^7$。
+\item 一種寫法：
+\begin{code}{cpp}{練習 4 參考解答（讀入 a 之後）}
+vector<int> strict, nondec;
+for (int x : a) {
+    auto it = lower_bound(strict.begin(), strict.end(), x);
+    if (it == strict.end()) {
+        strict.push_back(x);
+    } else {
+        *it = x;
+    }
+    auto jt = upper_bound(nondec.begin(), nondec.end(), x);
+    if (jt == nondec.end()) {
+        nondec.push_back(x);
+    } else {
+        *jt = x;
+    }
+}
+cout << strict.size() << ' ' << nondec.size() << '\n';
+\end{code}
+不下降時，等於結尾的數字也可以接上去，所以要找第一個\textbf{大於} $x$ 的結
+尾來取代，用 \texttt{upper\_bound}。 範例的嚴格遞增是 \texttt{1 3 4}（或
+\texttt{1 2 4}），不下降是 \texttt{1 3 3 4}（或 \texttt{1 2 2 4}）。
+\item 一種寫法，新增的成員：
+\begin{code}{cpp}{練習 5 參考解答（新增的部分）}
+// private 裡多一個成員：Node *tail = nullptr;
+void pushBack(const T &x) {
+    Node *node = new Node{x, nullptr};
+    if (tail == nullptr) {
+        head = tail = node;            // 原本是空的
+    } else {
+        tail->next = node;
+        tail = node;
+    }
+    size_++;
+}
+void popFront() {
+    Node *old = head;
+    head = head->next;
+    if (head == nullptr) {
+        tail = nullptr;                // 刪完變空的
+    }
+    delete old;
+    size_--;
+}
+\end{code}
+多了 \texttt{tail} 之後，原本的成員函式也要維持「\texttt{tail} 指著最後一個節
+點」這個不變量：\texttt{pushFront} 在串列原本是空的時候要把 \texttt{tail}
+設成新節點；\texttt{reverse} 之後，原本的第一個節點變成最後一個，要在迴圈開
+始前記下 \texttt{head}，最後設給 \texttt{tail}。 最容易漏掉的是兩個邊界：空
+串列加入第一個節點時 \texttt{head} 和 \texttt{tail} 都要設；刪掉最後一個節
+點時 \texttt{tail} 要改回 \texttt{nullptr}，不然它會指著已經刪掉的節點，下
+一次 \texttt{pushBack} 就是寫入已釋放的記憶體。 練習的 \texttt{main} 正好
+經過這兩種情況：三次 \texttt{popFront} 把串列刪空，再 \texttt{pushBack}。
+\end{enumerate}
