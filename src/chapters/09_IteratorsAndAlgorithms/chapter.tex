@@ -1,0 +1,1158 @@
+\chapter{迭代器與演算法}
+\label{ch:iter-algo}
+
+第~3~章開始就一直在寫 \texttt{sort(v.begin(), v.end())}，第~8~章的
+\texttt{find} 也回傳一個「跟 \texttt{end()} 比」的東西，當時都說留到這一
+章。 這一章先把迭代器講清楚：它是把指標推廣到各種容器上的東西，
+\texttt{begin()}、\texttt{end()} 圍出一個範圍，演算法就在這個範圍上工作。
+
+後半章介紹 \texttt{<algorithm>} 裡解題最常用的幾個函式：自訂順序的
+\texttt{sort}、寫比較函式很方便的 lambda、搜尋與計數、去掉重複、二分搜尋，
+以及枚舉所有排列的 \texttt{next\_permutation}。 最後談什麼時候自己寫迴圈，
+什麼時候用現成的演算法。
+
+\section{迭代器：一般化的指標}
+\label{sec:iterators}
+
+\begin{crecap}[用指標走訪陣列]
+C 走訪陣列除了用下標，也可以用指標：
+
+\begin{code}{c}{用指標走訪陣列}
+int a[] = {3, 1, 4, 1, 5};
+int n = 5;
+for (int *p = a; p != a + n; p++) {
+    printf("%d ", *p);
+}
+\end{code}
+
+\texttt{p} 從 \texttt{a}（第一個元素的位址）開始，\texttt{*p} 取出目前的
+元素，\texttt{p++} 移到下一個。 \texttt{a + n} 是「最後一個元素的下一個」
+位置，那裡沒有元素，不能用 \texttt{*} 去讀，但可以拿來比較：\texttt{p}
+走到那裡，迴圈就結束。 C 允許指標指到陣列結尾的下一格，就是為了這種寫法。
+兩個指向同一個陣列的指標還可以相減，\texttt{(a + n) - a} 是 $n$。
+\end{crecap}
+
+\textbf{迭代器}（iterator）是同一個想法用在容器上：\texttt{v.begin()} 對
+應 \texttt{a}，\texttt{v.end()} 對應 \texttt{a + n}，\texttt{*it} 取出元
+素，\texttt{++it} 移到下一個。 寫法跟指標一模一樣，所以上面的迴圈換成
+\texttt{vector}、\texttt{set}、\texttt{map} 都能照寫：
+
+\begin{example}[label=ex:iter-basics]{cpp}{(iter\_basics.cpp) 用迭代器走訪 vector、set、map}
+#include <iostream>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {3, 1, 4, 1, 5};
+    for (vector<int>::iterator it = v.begin(); it != v.end(); ++it) {
+        *it *= 10;
+    }
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        cout << *it << ' ';
+    }
+    cout << '\n';
+
+    auto mid = v.begin() + 2;
+    cout << *mid << ' ' << mid - v.begin() << ' ' << v.end() - v.begin() << '\n';
+
+    set<string> s = {"pear", "apple", "fig"};
+    for (auto it = s.begin(); it != s.end(); ++it) {
+        cout << *it << ' ' << it->size() << '\n';
+    }
+
+    map<string, int> m = {{"Ada", 95}, {"Alan", 88}};
+    auto it = m.begin();
+    ++it;
+    cout << it->first << ' ' << it->second << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+30 10 40 10 50 \\
+40 2 5 \\
+apple 5 \\
+fig 3 \\
+pear 4 \\
+Alan 88 \\
+}
+
+\begin{itemize}
+\item 迭代器的型別寫出來是 \texttt{vector<int>::iterator}，意思是「屬於
+\texttt{vector<int>} 的迭代器型別」。 \texttt{set<string>} 的迭代器是
+\texttt{set<string>::iterator}，名字更長，所以平常都寫 \texttt{auto}，這
+就是第~2~章說 \texttt{auto} 最有用的地方。
+\item \texttt{*it *= 10} 透過迭代器修改元素，跟 \texttt{*p *= 10} 一樣。
+\item \texttt{vector} 的迭代器能像指標一樣加減整數：\texttt{v.begin() + 2}
+指向第 $2$ 個元素，兩個迭代器相減得到它們差幾格，所以
+\texttt{mid - v.begin()} 是下標 $2$，\texttt{v.end() - v.begin()} 是元素
+個數 $5$。 演算法回傳迭代器時，常用這個減法換回下標。
+\item 元素是結構或物件時，\texttt{it->size()} 等於 \texttt{(*it).size()}，
+跟指向結構的指標用法相同。 \texttt{map} 的元素是 \texttt{pair}，所以寫
+\texttt{it->first}、\texttt{it->second}。
+\end{itemize}
+
+第~3~章的範圍 \texttt{for} 就是這種迴圈的簡寫：\texttt{for (int x : v)}
+會被編譯器展開成從 \texttt{v.begin()} 走到 \texttt{v.end()}、每一輪
+\texttt{x = *it} 的迴圈。 只是要從頭到尾看一遍時，用範圍 \texttt{for}
+就好；需要知道「現在走到哪裡」、要把位置交給別的函式時，才用迭代器。
+
+\subsection{半開區間}
+
+\texttt{begin()} 指著第一個元素，\texttt{end()} 指著最後一個元素的下一
+格。 這樣圍出的範圍包含開頭、不包含結尾，數學上寫成 $[\text{first},
+\text{last})$，叫\textbf{半開區間}。 標準函式庫的演算法一律收兩個迭代器
+\texttt{first}、\texttt{last}，表示 $[\text{first}, \text{last})$ 這一段。
+這種寫法有幾個好處：
+
+\begin{itemize}
+\item 元素個數就是 \texttt{last - first}，不用加減 $1$。
+\item \texttt{first == last} 表示空範圍。 空的 \texttt{vector}，
+\texttt{begin()} 就等於 \texttt{end()}，迴圈一次也不跑，不必特別處理。
+\item 一段可以從中間切成兩段 $[\text{first}, \text{mid})$ 和
+$[\text{mid}, \text{last})$，兩段不重疊也不漏掉元素。
+\end{itemize}
+
+所以 \texttt{sort(v.begin(), v.begin() + 3)} 只排前 $3$ 個元素，
+\texttt{sort(v.begin() + 1, v.end())} 排第 $1$ 個以後的元素。 C 的陣列也
+能交給演算法，指標本身就是迭代器：\texttt{int a[100]} 的前 $n$ 個元素用
+\texttt{sort(a, a + n)} 排序。 建立 \texttt{vector} 時也可以給一個範圍，
+\texttt{vector<int> w(v.begin(), v.begin() + 3);} 複製 \texttt{v} 的前
+$3$ 個元素。
+
+\subsection{迭代器的種類}
+
+指標能做的事，不是每一種迭代器都能做。 \texttt{vector} 的元素一個接一個
+放在連續的記憶體裡，所以「往後跳 $k$ 格」就是位址加上 $k$ 個元素的大小，
+跟指標一樣是 $O(1)$。 \texttt{set} 和 \texttt{map} 是一棵樹，「下一個元
+素」要沿著樹走過去，沒辦法一步跳 $k$ 格。 標準函式庫依照能做的操作，把
+迭代器分成幾類，這裡只需要記三種：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+種類 & 能做的事 & 容器 \\
+\midrule
+隨機存取（random access） & 跟指標一樣：\texttt{++}、\texttt{--}、\texttt{+ k}、相減、\texttt{<} & \texttt{vector}、\texttt{deque}、\texttt{string}、陣列 \\
+雙向（bidirectional） & \texttt{++}、\texttt{--} & \texttt{set}、\texttt{map}、\texttt{list} \\
+單向（forward） & 只有 \texttt{++} & \texttt{unordered\_set}、\texttt{unordered\_map} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+每一種都能用 \texttt{*}、\texttt{==}、\texttt{!=}。 演算法也在宣告裡說明
+它需要哪一種迭代器。 \texttt{sort} 排序時要一直跳到範圍的中間、算兩個位置
+差幾格，所以需要隨機存取迭代器。 \texttt{set} 不用排序（本來就排好了）；
+\texttt{list}（雙向鏈結串列，本書沒有介紹）要排序就用它自己的成員函式
+\texttt{a.sort()}。 交給 \texttt{std::sort} 會編譯失敗，見本節的常見錯誤。
+
+\texttt{set}、\texttt{map} 的迭代器不能 \texttt{+ 1}，要往前或往後一格就
+用 \texttt{++it}、\texttt{--it}。 不想改動 \texttt{it} 本身時，
+\texttt{next(it)} 和 \texttt{prev(it)} 回傳下一個和前一個位置。
+
+\subsection{迭代器失效}
+
+迭代器跟指標一樣，指著某一塊記憶體裡的元素。 第~4~章說過，
+\texttt{push\_back} 讓 \texttt{size()} 超過 \texttt{capacity()} 時，
+\texttt{vector} 會換一塊記憶體，指向舊元素的參考和指標都懸置了；迭代器也
+一樣，這叫\textbf{迭代器失效}（iterator invalidation）。 下面的程式邊走
+訪邊 \texttt{push\_back}：
+
+\begin{example}[label=ex:iter-dangling]{cpp}{(iter\_dangling.cpp) 走訪時 push\_back（錯誤示範）}
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {1, 2, 3};
+    for (auto it = v.begin(); it != v.end(); ++it) {
+        if (*it % 2 == 1) {
+            v.push_back(*it * 10);   // 走訪時加元素
+        }
+    }
+    cout << v.size() << '\n';
+    return 0;
+}
+\end{example}
+
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+==3486867==ERROR: AddressSanitizer: heap-use-after-free on address 0x502000000014
+READ of size 4 at 0x502000000014 thread T0
+    #0 0x5f7d71da0682 in main iter_dangling.cpp:8
+
+freed by thread T0 here:
+    #6 0x5f7d71da0fd9 in std::vector<int, std::allocator<int> >::push_back(int&&) /usr/include/c++/13/bits/stl_vector.h:1299
+    #7 0x5f7d71da075c in main iter_dangling.cpp:9
+\end{code}
+
+第一輪 \texttt{*it} 是 $1$，\texttt{push\_back(10)} 超過容量，換了記憶
+體；\texttt{it} 還指著舊的那塊，第二輪在第 $8$ 行讀 \texttt{*it} 時就讀到
+已經釋放的記憶體。 不開 ASan 時，在本書測試的環境下程式照樣跑完，印出
+\texttt{11}，看不出哪裡出了錯；換一個環境，結果可能不同，也可能當掉。 修法跟第~3~章一樣：改用下
+標迴圈，或者把要加的元素先放進另一個 \texttt{vector}。
+
+刪除也會讓迭代器失效：\texttt{v.erase(it)} 之後，\texttt{it} 和它後面的
+迭代器都不能再用。 要邊走訪邊刪除，用 \texttt{erase} 的回傳值，它指向被
+刪掉的元素的下一個：
+
+\begin{code}{cpp}{邊走訪邊刪除偶數}
+vector<int> v = {4, 1, 6, 6, 3, 8};
+for (auto it = v.begin(); it != v.end();) {
+    if (*it % 2 == 0) {
+        it = v.erase(it);      // erase 回傳下一個元素的迭代器
+    } else {
+        ++it;
+    }
+}
+// v 剩下 1 3
+\end{code}
+
+\texttt{for} 的第三個部分空著，因為刪掉元素時 \texttt{it} 已經是下一個，
+不能再 \texttt{++}。 \texttt{set} 和 \texttt{map} 的 \texttt{erase(it)}
+也回傳下一個位置，同樣的迴圈可以照用。 \texttt{set}、\texttt{map} 加入元
+素時，其他元素的迭代器不會失效；刪除時只有指向被刪元素的那一個失效。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{讀 \texttt{*v.end()}}：\texttt{end()} 不指著任何元素，跟
+C 的 \texttt{a[n]} 一樣是越界，屬於未定義行為。 最後一個元素是
+\texttt{*(v.end() - 1)} 或 \texttt{v.back()}，而且 \texttt{v} 不能是空的。
+空容器的 \texttt{*v.begin()} 也是同樣的錯誤。
+\item \textbf{對 \texttt{set} 的迭代器加整數}：\texttt{s.begin() + 1} 編譯
+失敗，報 \texttt{no match for 'operator+' (operand types are
+'std::set<int>::iterator' ... and 'int')}。 用 \texttt{next(s.begin())}，
+要往後 $k$ 格就是 \texttt{next(s.begin(), k)}，它其實是一格一格走 $k$
+次，要花 $O(k)$。
+\item \textbf{對 \texttt{list} 或 \texttt{set} 用 \texttt{sort}}：
+\texttt{sort(a.begin(), a.end())} 的錯誤指向 \texttt{stl\_algo.h}，從上往
+下找到這兩行：
+\begin{code}{text}{編譯器的錯誤訊息（節錄）}
+required from 'void std::sort(_RAIter, _RAIter) [with _RAIter = _List_iterator<int>]'
+error: no match for 'operator-' (operand types are 'std::_List_iterator<int>' and 'std::_List_iterator<int>')
+\end{code}
+\texttt{\_RAIter} 是 random access iterator 的縮寫，表示 \texttt{sort}
+要隨機存取迭代器；錯誤的原因是兩個 \texttt{list} 迭代器不能相減。
+\texttt{set} 的訊息相同，只是型別換成 \texttt{\_Rb\_tree\_const\_iterator}。
+\item \textbf{兩個迭代器來自不同的容器}：\texttt{sort(a.begin(), b.end())}
+編譯得過，執行時是未定義行為。 函式回傳 \texttt{vector} 複本時特別容易犯：
+\texttt{sort(get().begin(), get().end())} 的兩次 \texttt{get()} 是兩個不同
+的暫時物件。 先存成變數再用。
+\end{itemize}
+
+\section{\texttt{sort} 與比較函式}
+\label{sec:sort}
+
+\texttt{sort(first, last)} 把範圍內的元素用 \texttt{<} 由小到大排好，時
+間是 $O(n \log n)$。 要用別的順序，就多傳第三個引數：一個\textbf{比較函
+式}，收兩個元素 \texttt{a}、\texttt{b}，當 \texttt{a} 應該排在 \texttt{b}
+前面時回傳 \texttt{true}。
+
+\begin{example}[label=ex:sort-cmp]{cpp}{(sort\_cmp.cpp) 由大到小，以及依分數和名字排序}
+#include <algorithm>
+#include <functional>
+#include <iostream>
+#include <string>
+#include <vector>
+using namespace std;
+
+struct Student {
+    string name;
+    int score;
+};
+
+bool byScoreDesc(const Student &a, const Student &b) {
+    if (a.score != b.score) {
+        return a.score > b.score;     // 分數高的在前
+    }
+    return a.name < b.name;           // 同分照名字
+}
+
+int main() {
+    vector<int> v = {5, 1, 4, 1, 5, 9, 2, 6};
+    sort(v.begin(), v.end(), greater<int>());
+    for (int x : v) {
+        cout << x << ' ';
+    }
+    cout << '\n';
+
+    vector<Student> s = {{"Linus", 88}, {"Ada", 95}, {"Grace", 88}, {"Alan", 70}};
+    sort(s.begin(), s.end(), byScoreDesc);
+    for (const auto &st : s) {
+        cout << st.name << ' ' << st.score << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+9 6 5 5 4 2 1 1 \\
+Ada 95 \\
+Grace 88 \\
+Linus 88 \\
+Alan 70 \\
+}
+
+\begin{itemize}
+\item \texttt{greater<int>()} 是第~8~章 \texttt{priority\_queue} 用過的
+\texttt{greater}，後面加 \texttt{()} 建立一個物件傳進去。 它用 \texttt{>}
+比較，所以由大到小。
+\item \texttt{byScoreDesc} 是一般的函式，傳的時候只寫名字，不加括號。
+\texttt{sort} 排序時會反覆呼叫它，問「\texttt{a} 要不要排在 \texttt{b}
+前面」。
+\item 比較好幾個欄位的寫法是固定的：第一個欄位不同就比第一個欄位，相同才往
+下比。 \texttt{Student} 沒有 \texttt{<}，直接 \texttt{sort(s.begin(),
+s.end())} 會編譯失敗；第~6~章的做法是替型別寫 \texttt{operator<}，比較函
+式則讓同一個型別可以有好幾種排法。
+\end{itemize}
+
+C 的 \texttt{qsort} 也收一個比較函式，但規則不同：\texttt{qsort} 的比較函
+式回傳負數、$0$、正數三種結果，\texttt{sort} 的只回傳 \texttt{bool}，
+意思是「\texttt{a} 是否嚴格排在 \texttt{b} 前面」。 這個差別是本節常見錯
+誤的來源。
+
+\subsection{\texttt{stable\_sort}}
+
+\texttt{sort} 不保證相等的元素維持原來的先後。 上面 \texttt{Grace} 和
+\texttt{Linus} 同分，是靠比較函式比了名字才有固定的順序；只比分數的話，
+誰在前面沒有規定。 \texttt{stable\_sort} 用法跟 \texttt{sort} 一樣，但
+保證相等的元素照原來的順序。 所以下面兩步的結果跟 \texttt{byScoreDesc}
+相同：先依名字排，再依分數\textbf{穩定}排序，同分的人仍然照名字。
+
+\begin{code}{cpp}{先排次要欄位，再穩定排序主要欄位}
+sort(s.begin(), s.end(), [](const Student &a, const Student &b) {
+    return a.name < b.name;
+});
+stable_sort(s.begin(), s.end(), [](const Student &a, const Student &b) {
+    return a.score > b.score;
+});
+// Ada 95、Grace 88、Linus 88、Alan 70
+\end{code}
+
+這裡的比較函式直接寫在呼叫的地方，叫 lambda，下一節介紹。 解題時多半像
+\texttt{byScoreDesc} 一樣一次比完所有欄位；資料本來就有意義的順序（例如報
+名的先後）、只想依某個欄位重排時，才需要 \texttt{stable\_sort}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{用 \texttt{<=} 當比較函式}：比較函式必須是嚴格的「小於」，
+第~6~章列過條件：\texttt{cmp(a, a)} 一定是假，\texttt{cmp(a, b)} 和
+\texttt{cmp(b, c)} 為真時 \texttt{cmp(a, c)} 也要為真。 標準裡叫\textbf{嚴
+格弱序}（strict weak ordering）。 \texttt{a <= b} 對相等的元素回傳真，不符合。
+下面的程式排序 $20$ 個 $5$：
+\begin{code}{cpp}{用 <= 排序（錯誤示範）}
+vector<int> v(20, 5);            // 20 個 5
+sort(v.begin(), v.end(), [](int a, int b) { return a <= b; });
+\end{code}
+在本書測試的環境下，不開檢查時程式照常結束，看不出問題。 用 ASan 跑，
+\texttt{sort} 讀到了 \texttt{vector} 的範圍外面：
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+==3521734==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5070000000e0
+READ of size 4 at 0x5070000000e0 thread T0
+    #1 0x5e6119314035 in __unguarded_partition<...> /usr/include/c++/13/bits/stl_algo.h:1877
+    #6 0x5e611931257d in main le_cmp.cpp:8
+\end{code}
+\texttt{sort} 為了快，分割時假設「一定會遇到一個不小於基準的元素而停下
+來」，所以不檢查邊界；比較函式說每個元素都「小於等於」基準，它就一路走出
+去了。 編譯時加 \texttt{-D\_GLIBCXX\_DEBUG}，標準函式庫會檢查這個條件，直
+接指出問題：\texttt{Error: comparison doesn't meet irreflexive
+requirements, assert(!(a < a)).} 由大到小要寫 \texttt{>}，不是
+\texttt{>=}。
+\item \textbf{照 \texttt{qsort} 的習慣寫 \texttt{return a - b;}}：回傳值
+轉成 \texttt{bool}，只要 \texttt{a} 和 \texttt{b} 不相等就是 \texttt{true}，
+等於說「\texttt{a} 在 \texttt{b} 前面，\texttt{b} 也在 \texttt{a} 前面」。
+編譯沒有警告；在本書測試的環境下，\texttt{\{3, 1, 2\}} 排完是
+\texttt{2 1 3}。 要寫 \texttt{return a < b;}。
+\item \textbf{比較函式的參數用傳值}：\texttt{bool cmp(Student a, Student b)}
+結果正確，但每次比較都複製兩個 \texttt{Student}，排序要比較 $n \log n$
+次左右。 照第~2~章的原則寫 \texttt{const Student \&}。
+\end{itemize}
+
+\section{lambda}
+\label{sec:lambda}
+
+\texttt{byScoreDesc} 只在一個地方用到，卻要寫在 \texttt{main} 外面、另外
+取名字，讀程式的人得跳過去看。 \textbf{lambda}（lambda expression）讓你
+在需要函式的地方直接寫一個沒有名字的函式：
+
+\begin{example}[label=ex:lambda]{cpp}{(lambda.cpp) lambda 與捕獲}
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    auto add = [](int a, int b) { return a + b; };
+    cout << add(2, 3) << '\n';
+
+    int limit = 10;
+    auto byValue = [limit](int x) { return x > limit; };
+    auto byRef = [&limit](int x) { return x > limit; };
+    limit = 100;
+    cout << byValue(50) << ' ' << byRef(50) << '\n';
+
+    int sum = 0;
+    auto addTo = [&sum](int x) { sum += x; };
+    addTo(3);
+    addTo(4);
+    cout << sum << '\n';
+
+    int target = 10;
+    vector<int> v = {3, 14, 8, 20, 11};
+    sort(v.begin(), v.end(), [target](int a, int b) {
+        return abs(a - target) < abs(b - target);
+    });
+    for (int x : v) {
+        cout << x << ' ';
+    }
+    cout << '\n';
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+5 \\
+1 0 \\
+7 \\
+11 8 14 3 20 \\
+}
+
+一個 lambda 由三個部分組成：
+
+\begin{itemize}
+\item \texttt{[...]}：\textbf{捕獲列表}（capture list），列出函式本體要
+用到的外面的區域變數。 \texttt{add} 不需要外面的東西，寫空的 \texttt{[]}。
+\item \texttt{(int a, int b)}：參數，跟一般函式一樣。
+\item \texttt{\{ return a + b; \}}：函式本體。 回傳型別由
+\texttt{return} 的運算式推斷，這裡是 \texttt{int}，不用寫出來。
+\end{itemize}
+
+lambda 是一個運算式，結果是一個可以呼叫的物件。 它的型別沒有名字，所以存
+成變數時寫 \texttt{auto}；更常見的用法是像 \texttt{sort} 那行一樣，直
+接當成引數傳進去。
+
+\subsection{傳值捕獲與傳參考捕獲}
+
+lambda 本體裡不能直接用外面的區域變數，要先捕獲。 捕獲的方式跟傳參數一樣
+有兩種：
+
+\begin{itemize}
+\item \texttt{[limit]}：\textbf{傳值捕獲}。 建立 lambda 的那一刻，把
+\texttt{limit} 的值複製一份存在 lambda 裡。 之後 \texttt{limit} 改成
+$100$，\texttt{byValue} 裡的仍然是 $10$，所以 \texttt{byValue(50)} 是真。
+複製進來的值是唯讀的，只能讀不能改。
+\item \texttt{[\&limit]}：\textbf{傳參考捕獲}。 lambda 裡的
+\texttt{limit} 是外面那個變數的參考，看得到之後的修改，所以
+\texttt{byRef(50)} 用的是 $100$，結果是假。 要在 lambda 裡修改外面的變數，
+例如 \texttt{addTo} 累加 \texttt{sum}，就要傳參考捕獲。
+\end{itemize}
+
+選法跟第~2~章選參數一樣：小型別只讀就傳值，要修改或型別很大（例如一個
+\texttt{vector}）就傳參考。 好幾個變數用逗號隔開：\texttt{[target,
+\&cnt]}。 另外有兩種簡寫：\texttt{[=]} 用到的全部傳值，\texttt{[\&]}
+用到的全部傳參考。 簡寫方便，但看不出捕獲了什麼；本書把要捕獲的變數一個
+一個寫出來。
+
+範例最後的 \texttt{sort} 依「離 \texttt{target} 多近」排序。 比較函式需要
+知道 \texttt{target}，而 \texttt{sort} 只會傳兩個元素進來，第三個值沒有地方
+放。 用一般函式的話，只能把 \texttt{target} 改成全域變數；lambda 把它捕獲
+進來就好。 這是 lambda 比一般函式好用的主要原因。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有捕獲就使用}：\texttt{[](int x) \{ return x > limit; \}}
+報 \texttt{error: 'limit' is not captured}。 把 \texttt{limit} 寫進方括號。
+\item \textbf{修改傳值捕獲的變數}：\texttt{[sum](int x) \{ sum += x; \}}
+報 \texttt{error: assignment of read-only variable 'sum'}。 想改的是外面的
+\texttt{sum}，就要寫 \texttt{[\&sum]}。
+\item \textbf{傳參考捕獲的變數比 lambda 先消失}：下面的函式回傳一個
+lambda，它用參考捕獲了參數 \texttt{limit}：
+\begin{code}{cpp}{lambda 捕獲了將要消失的參數（錯誤示範）}
+auto makeAbove(int limit) {
+    return [&limit](int x) { return x > limit; };   // limit 是參數
+}
+
+int main() {
+    auto above10 = makeAbove(10);
+    cout << above10(50) << '\n';
+    return 0;
+}
+\end{code}
+\texttt{makeAbove} 一回傳，參數 \texttt{limit} 的生命週期就結束了，
+\texttt{above10} 裡的參考跟著懸置，跟第~4~章「回傳區域變數的參考」是同
+一件事。 \texttt{-Wall -Wextra} 不會警告；在本書測試的環境下，程式印出
+\texttt{0}，不是預期的 \texttt{1}。 ASan 報 \texttt{stack-use-after-return}：
+\begin{code}{text}{用 ASan 編譯後執行（節錄）}
+==3527040==ERROR: AddressSanitizer: stack-use-after-return on address 0x7febbeb00060
+READ of size 4 at 0x7febbeb00060 thread T0
+    #0 0x59ac85a0d2f7 in operator() lambda_dangling.cpp:5
+    #1 0x59ac85a0d4a5 in main lambda_dangling.cpp:10
+\end{code}
+改成傳值捕獲 \texttt{[limit]}，值就跟著 lambda 走。 規則是：lambda 只在
+當下用掉（例如傳給 \texttt{sort}），傳參考捕獲沒問題；lambda 會被存起來、
+回傳出去，就用傳值捕獲。
+\end{itemize}
+
+\section{常用的演算法}
+\label{sec:algorithms}
+
+\texttt{<algorithm>} 裡有上百個函式，解題常用的不多。 下面的範例一次示範
+大部分，每一個都收一個範圍 $[\text{first}, \text{last})$：
+
+\begin{example}[label=ex:algos]{cpp}{(algos.cpp) 搜尋、計數、最大最小、反轉、加總、去重複}
+#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <vector>
+using namespace std;
+
+void print(const vector<int> &v) {
+    for (int x : v) {
+        cout << x << ' ';
+    }
+    cout << '\n';
+}
+
+int main() {
+    vector<int> v = {7, 3, 9, 3, 12, 5, 3};
+
+    auto it = find(v.begin(), v.end(), 9);
+    if (it != v.end()) {
+        cout << "9 在下標 " << it - v.begin() << '\n';
+    }
+    auto ev = find_if(v.begin(), v.end(), [](int x) { return x % 2 == 0; });
+    cout << "第一個偶數 " << *ev << '\n';
+
+    cout << count(v.begin(), v.end(), 3) << ' '
+         << count_if(v.begin(), v.end(), [](int x) { return x > 4; }) << '\n';
+
+    auto lo = min_element(v.begin(), v.end());
+    auto hi = max_element(v.begin(), v.end());
+    cout << *lo << " 在 " << lo - v.begin() << "，"
+         << *hi << " 在 " << hi - v.begin() << '\n';
+
+    cout << accumulate(v.begin(), v.end(), 0) << '\n';
+
+    reverse(v.begin(), v.end());
+    print(v);
+
+    sort(v.begin(), v.end());
+    v.erase(unique(v.begin(), v.end()), v.end());
+    print(v);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+9 在下標 2 \\
+第一個偶數 12 \\
+3 4 \\
+3 在 1，12 在 4 \\
+42 \\
+3 5 12 3 9 3 7 \\
+3 5 7 9 12 \\
+}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+呼叫 & 結果 \\
+\midrule
+\texttt{find(first, last, x)} & 第一個等於 \texttt{x} 的位置，沒有就是 \texttt{last} \\
+\texttt{find\_if(first, last, pred)} & 第一個讓 \texttt{pred} 為真的位置，沒有就是 \texttt{last} \\
+\texttt{count(first, last, x)} & 等於 \texttt{x} 的個數 \\
+\texttt{count\_if(first, last, pred)} & 讓 \texttt{pred} 為真的個數 \\
+\texttt{min\_element}、\texttt{max\_element} & 最小、最大元素的位置（有好幾個時取第一個） \\
+\texttt{reverse(first, last)} & 把範圍反轉，沒有回傳值 \\
+\texttt{accumulate(first, last, init)} & \texttt{init} 加上所有元素（在 \texttt{<numeric>} 裡） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item 回傳「位置」的演算法都回傳迭代器，找不到時回傳 \texttt{last}，跟第~8~
+章 \texttt{set} 的 \texttt{find} 回傳 \texttt{end()} 是同一個慣例。 要下
+標就減掉 \texttt{v.begin()}，要值就用 \texttt{*}。
+\item \texttt{pred} 是一個回傳 \texttt{bool} 的函式，叫\textbf{述詞}
+（predicate），通常直接寫成 lambda。 有 \texttt{\_if} 的版本都收述詞。
+\item \texttt{min\_element} 回傳位置而不是值，因為解題常要知道「最小值在
+哪裡」。 只要值的話，\texttt{*min\_element(...)}。
+\item 這些演算法都只是一個迴圈，時間是 $O(n)$。 範例裡 \texttt{find\_if}
+回傳的 \texttt{ev} 沒有跟 \texttt{v.end()} 比就直接 \texttt{*}，是因為這
+裡確定有偶數；不確定時要先比。
+\end{itemize}
+
+\subsection{\texttt{unique} 與 \texttt{erase}}
+
+範例最後兩行是去掉重複元素的固定寫法。 \texttt{unique} 把\textbf{相鄰}的
+重複元素只留一個，往前搬，回傳「不重複部分的結尾」。 它不會改變
+\texttt{vector} 的大小：演算法只拿到兩個迭代器，碰得到元素，碰不到容器本
+身，沒辦法刪除元素。 所以要再用 \texttt{erase} 把後面那段刪掉：
+
+\begin{code}{cpp}{排序、unique、erase 去掉重複}
+sort(v.begin(), v.end());                        // 相同的數字排在一起
+v.erase(unique(v.begin(), v.end()), v.end());    // 刪掉 [新結尾, end)
+\end{code}
+
+\texttt{erase} 收兩個迭代器時，刪掉這個半開區間裡的元素。 三個步驟缺一不
+可：沒有 \texttt{sort}，不相鄰的重複就留著；沒有 \texttt{erase}，大小不變。
+做完之後 \texttt{v} 是排好序、不重複的，可以直接用下一節的二分搜尋。 這個
+組合在解題時很常見，例如座標壓縮。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{\texttt{unique} 沒有接 \texttt{erase}}：
+\begin{code}{cpp}{只呼叫 unique（錯誤示範）}
+vector<int> v = {1, 1, 2, 3, 3, 3, 4};
+auto newEnd = unique(v.begin(), v.end());
+cout << newEnd - v.begin() << ' ' << v.size() << '\n';   // 4 7
+\end{code}
+前 $4$ 個是 \texttt{1 2 3 4}，但 \texttt{v.size()} 還是 $7$。 後面 $3$ 個
+元素的值沒有規定，在本書測試的環境下整個 \texttt{v} 印出來是
+\texttt{1 2 3 4 3 3 4}。 之後如果拿 \texttt{v.size()} 或範圍 \texttt{for}
+去用，就會多出這幾個舊值。
+\item \textbf{\texttt{unique} 之前沒有排序}：\texttt{\{3, 1, 3, 1\}} 沒有
+相鄰的重複，\texttt{unique} 什麼都不做，結果還是 \texttt{3 1 3 1}。
+\item \textbf{\texttt{accumulate} 的初始值型別}：回傳值和加總過程都用
+\texttt{init} 的型別。 \texttt{vector<double>} 寫
+\texttt{accumulate(d.begin(), d.end(), 0)}，\texttt{0} 是 \texttt{int}，
+每一步都截掉小數：\texttt{\{0.5, 1.5, 2.25\}} 加出來是 \texttt{3}，不是
+\texttt{4.25}。 要寫 \texttt{0.0}。 加總可能超過 \texttt{int} 時寫
+\texttt{0LL}：兩個 \texttt{2000000000} 用 \texttt{0} 加是有號整數溢位，
+屬於未定義行為，本書測試的環境下印出 \texttt{-294967296}；編譯時加
+\texttt{-fsanitize=undefined}，執行時會報 \texttt{runtime error: signed
+integer overflow: 2000000000 + 2000000000 cannot be represented in type
+'int'}。
+\item \textbf{對空範圍取 \texttt{*max\_element}}：空的 \texttt{vector}，
+\texttt{max\_element} 回傳 \texttt{end()}，再用 \texttt{*} 就是讀
+\texttt{*v.end()}。 在本書測試的環境下用 ASan 跑，報
+\texttt{SEGV on unknown address 0x000000000000}。 先確定範圍不是空的。
+\item \textbf{對 \texttt{set} 用 \texttt{std::find}}：\texttt{find(s.begin(),
+s.end(), x)} 結果正確，但它從頭一個一個比，是 $O(n)$。 \texttt{set} 和
+\texttt{map} 要用成員函式 \texttt{s.find(x)}，利用排好的樹，是
+$O(\log n)$。 \texttt{count} 也一樣。
+\end{itemize}
+
+\section{二分搜尋}
+\label{sec:binary-search}
+
+在排好序的資料裡找東西，可以每次看中間那個，丟掉不可能的一半，$n$ 個元素
+只要看大約 $\log_2 n$ 個，這是\textbf{二分搜尋}（binary search）。 自己寫
+時，\texttt{lo}、\texttt{hi} 是否包含、迴圈條件是 \texttt{<} 還是
+\texttt{<=}，很容易差一。 標準函式庫有三個現成的版本，用在\textbf{已經由小
+到大排好}的範圍上：
+
+\begin{itemize}
+\item \texttt{binary\_search(first, last, x)}：有沒有 \texttt{x}，回傳
+\texttt{bool}。
+\item \texttt{lower\_bound(first, last, x)}：第一個 $\ge x$ 的位置。
+\item \texttt{upper\_bound(first, last, x)}：第一個 $> x$ 的位置。
+\end{itemize}
+
+兩個 \texttt{bound} 都回傳迭代器，找不到時是 \texttt{last}。 三個都是
+$O(\log n)$。
+
+\begin{example}[label=ex:bounds]{cpp}{(bounds.cpp) binary\_search、lower\_bound、upper\_bound}
+#include <algorithm>
+#include <iostream>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {1, 3, 3, 3, 5, 8};
+    cout << binary_search(v.begin(), v.end(), 3) << ' '
+         << binary_search(v.begin(), v.end(), 4) << '\n';
+
+    auto lo = lower_bound(v.begin(), v.end(), 3);
+    auto hi = upper_bound(v.begin(), v.end(), 3);
+    cout << lo - v.begin() << ' ' << hi - v.begin() << ' ' << hi - lo << '\n';
+
+    cout << lower_bound(v.begin(), v.end(), 4) - v.begin() << ' '
+         << upper_bound(v.begin(), v.end(), 4) - v.begin() << '\n';
+    if (lower_bound(v.begin(), v.end(), 9) == v.end()) {
+        cout << "沒有 >= 9 的元素" << '\n';
+    }
+
+    set<int> s = {10, 20, 30};
+    cout << *s.lower_bound(15) << ' ' << *s.lower_bound(20) << ' '
+         << *s.upper_bound(20) << '\n';
+
+    map<int, string> grade = {{0, "F"}, {60, "D"}, {70, "C"}, {80, "B"}, {90, "A"}};
+    for (int score : {85, 60, 59}) {
+        auto it = grade.upper_bound(score);   // 第一個門檻 > score
+        --it;                                 // 往回一格：最後一個 <= score
+        cout << score << ' ' << it->second << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 0 \\
+1 4 3 \\
+4 4 \\
+沒有 >= 9 的元素 \\
+20 20 30 \\
+85 B \\
+60 D \\
+59 F \\
+}
+
+\begin{itemize}
+\item \texttt{v} 裡的 $3$ 在下標 $1$ 到 $3$。 \texttt{lower\_bound} 指著
+第一個 $3$（下標 $1$），\texttt{upper\_bound} 指著最後一個 $3$ 的下一格
+（下標 $4$）。 兩者圍出的 $[\text{lo}, \text{hi})$ 正好是所有的 $3$，
+\texttt{hi - lo} 是 $3$ 出現的次數。 又是一個半開區間。
+\item 找不存在的 $4$ 時，兩個都指著下標 $4$，也就是 $4$ 應該插入的位置，
+\texttt{hi - lo} 是 $0$。 \texttt{lower\_bound} 不只回答有沒有，還告訴你
+「比 $x$ 小的有幾個」：就是它減掉 \texttt{v.begin()}。
+\item 比所有元素都大的 $9$，\texttt{lower\_bound} 回傳 \texttt{end()}。 要
+用 \texttt{*} 之前，先跟 \texttt{end()} 比。
+\item \texttt{set} 和 \texttt{map} 有同名的成員函式 \texttt{s.lower\_bound(x)}、
+\texttt{s.upper\_bound(x)}，意思相同，也是 $O(\log n)$。 \texttt{map} 的
+版本以鍵比較。 第~8~章說「要找比 $x$ 大的第一個就用 \texttt{set}」，指的
+就是這兩個函式。
+\item 成績等第的例子用的是「最後一個 $\le x$」：先找第一個 $> x$，再往回一
+格。 這裡 $0$ 一定在 \texttt{grade} 裡，分數又不會是負的，所以
+\texttt{upper\_bound} 不會回傳 \texttt{begin()}，\texttt{--it} 不會走出範圍。
+\end{itemize}
+
+\texttt{vector} 和 \texttt{set} 怎麼選：資料讀進來之後就不再變動，排序一次再
+用 \texttt{lower\_bound} 查，最簡單也最快；查詢之間還要插入或刪除，排序過的
+\texttt{vector} 每次插入要搬動 $O(n)$ 個元素，就改用 \texttt{set} 的成員函式。
+
+\subsection{例題：最近的商店}
+
+APCS 和解題網站常見的題型是「先給 $n$ 個數字，再問 $q$ 次」。 每次查詢都
+從頭找一遍是 $O(nq)$，$n$、$q$ 都是 $2 \times 10^5$ 時要做 $4 \times 10^{10}$
+次，太慢；先排序，每次查詢用二分搜尋，總時間是 $O((n + q) \log n)$。
+
+題目：一條街上有 $n$ 家商店，位置是整數 $p_1, \dots, p_n$（沒有排序）。
+接著有 $q$ 次查詢，每次給一個位置 $x$，輸出 $x$ 到最近一家商店的距離。
+
+\begin{example}[label=ex:nearest]{cpp}{(nearest.cpp) 用 lower\_bound 找最近的商店}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    vector<int> p(n);
+    for (int &x : p) {
+        cin >> x;
+    }
+    sort(p.begin(), p.end());
+
+    for (int i = 0; i < q; i++) {
+        int x;
+        cin >> x;
+        auto it = lower_bound(p.begin(), p.end(), x);   // 第一個 >= x
+        int best = -1;
+        if (it != p.end()) {
+            best = *it - x;                              // 右邊最近的
+        }
+        if (it != p.begin()) {
+            int left = x - *(it - 1);                    // 左邊最近的
+            if (best == -1 || left < best) {
+                best = left;
+            }
+        }
+        cout << best << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 5 \\
+30 2 17 9 40 \\
+10 1 35 17 50 \\
+}{
+1 \\
+1 \\
+5 \\
+0 \\
+10 \\
+}
+
+排好序之後商店是 \texttt{2 9 17 30 40}。 最近的商店一定是「第一個 $\ge x$
+的」或「它前面那一個」，所以只要看 \texttt{it} 和 \texttt{it - 1} 兩家。
+兩個 \texttt{if} 分別處理兩端：$x = 50$ 比所有商店都大，\texttt{it} 是
+\texttt{end()}，只能看左邊；$x = 1$ 比所有商店都小，\texttt{it} 是
+\texttt{begin()}，前面沒有商店。 輸入加速是第~1~章的寫法，查詢多的題目都
+該加上。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{範圍沒有排序}：這三個函式不檢查範圍有沒有排好，只照二分搜尋
+的步驟走。 下面的 \texttt{v} 裡明明有 $1$、$8$、$5$：
+\begin{code}{cpp}{對沒有排序的 vector 二分搜尋（錯誤示範）}
+vector<int> v = {8, 1, 5, 3, 9, 2};      // 沒有排序
+cout << binary_search(v.begin(), v.end(), 1) << ' '
+     << binary_search(v.begin(), v.end(), 8) << ' '
+     << lower_bound(v.begin(), v.end(), 5) - v.begin() << '\n';
+\end{code}
+在本書測試的環境下印出 \texttt{0 0 6}：兩個都說找不到，\texttt{lower\_bound}
+回傳了 \texttt{end()}。 結果沒有保證，換一組資料可能剛好對，所以小測資
+過了不代表沒問題。 加 \texttt{-D\_GLIBCXX\_DEBUG} 編譯，執行時會報
+\texttt{Error: elements in iterator range [first, last) are not partitioned
+by the value \_\_val.} 記得先 \texttt{sort}。
+\item \textbf{由大到小排序後直接二分搜尋}：用 \texttt{greater<int>()} 排序
+的 \texttt{vector}，對預設的 \texttt{<} 來說也是「沒有排好」。 要嘛排成由小
+到大，要嘛查詢時傳同一個比較函式：\texttt{lower\_bound(v.begin(), v.end(),
+x, greater<int>())}。
+\item \textbf{對 \texttt{set} 用 \texttt{std::lower\_bound}}：
+\texttt{lower\_bound(s.begin(), s.end(), x)} 編譯得過，結果也對，但
+\texttt{set} 的迭代器不能跳到中間，演算法只好一格一格走，變成 $O(n)$。 查
+詢多的時候會超時。 用成員函式 \texttt{s.lower\_bound(x)}。
+\item \textbf{沒有檢查 \texttt{end()} 或 \texttt{begin()} 就取值}：
+\texttt{*lower\_bound(...)} 在 $x$ 比所有元素都大時是讀
+\texttt{*v.end()}；\texttt{*(it - 1)} 在 \texttt{it} 是 \texttt{begin()} 時
+讀到範圍前面。 像 \texttt{nearest.cpp} 一樣，兩端都要檢查。
+\end{itemize}
+
+\section{\texttt{next\_permutation} 與暴力枚舉}
+\label{sec:permutation}
+
+有些題目的 $n$ 很小，最直接的做法是試遍所有排列：$n$ 個人排隊的每一種順序、
+$n$ 件工作分給 $n$ 個人的每一種分法。 \texttt{next\_permutation(first, last)}
+把範圍改成字典順序的下一個排列，回傳 \texttt{true}；已經是最後一個（由大到
+小）時，把範圍改回第一個（由小到大），回傳 \texttt{false}。 從排好序的範圍開
+始，用 \texttt{do}-\texttt{while} 呼叫到它回傳 \texttt{false}，就恰好走過
+每一個排列一次。
+
+下面的程式先印出 \texttt{1 2 3} 的所有排列，再解一個指派問題：$n$ 個人做
+$n$ 件工作，每人做一件，第 $i$ 個人做第 $j$ 件的成本是 $c_{ij}$，求總成本
+最小的分法。
+
+\begin{example}[label=ex:perm]{cpp}{(perm.cpp) 列出所有排列，暴力解指派問題}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> a = {1, 2, 3};
+    do {
+        cout << a[0] << a[1] << a[2] << ' ';
+    } while (next_permutation(a.begin(), a.end()));
+    cout << '\n';
+
+    int n;
+    cin >> n;
+    vector<vector<int>> cost(n, vector<int>(n));
+    for (auto &row : cost) {
+        for (int &c : row) {
+            cin >> c;
+        }
+    }
+
+    vector<int> job(n);              // job[i]：第 i 個人做哪一件工作
+    for (int i = 0; i < n; i++) {
+        job[i] = i;
+    }
+    int best = -1;
+    vector<int> bestJob;
+    do {
+        int total = 0;
+        for (int i = 0; i < n; i++) {
+            total += cost[i][job[i]];
+        }
+        if (best == -1 || total < best) {
+            best = total;
+            bestJob = job;
+        }
+    } while (next_permutation(job.begin(), job.end()));
+
+    cout << best << '\n';
+    for (int i = 0; i < n; i++) {
+        cout << "第 " << i + 1 << " 人做工作 " << bestJob[i] + 1 << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+9 2 7 \\
+6 4 3 \\
+5 8 1 \\
+}{
+123 132 213 231 312 321 \\
+9 \\
+第 1 人做工作 2 \\
+第 2 人做工作 1 \\
+第 3 人做工作 3 \\
+}
+
+\begin{itemize}
+\item 用 \texttt{do}-\texttt{while} 是因為一開始的 \texttt{1 2 3} 本身就是
+第一個排列，要先處理它，再問有沒有下一個。
+\item 一個排列 \texttt{job} 代表一種分法：第 $i$ 個人做第 \texttt{job[i]}
+件。 \texttt{job} 從 $0, 1, \dots, n - 1$ 開始，已經由小到大。
+\item 答案是 $2 + 6 + 1 = 9$。 \texttt{bestJob = job} 複製一份當時的排列，
+因為 \texttt{job} 接下來還會繼續變。
+\end{itemize}
+
+$n$ 個元素有 $n!$ 個排列，每個排列再花 $O(n)$ 計算，總時間是 $O(n \cdot n!)$。
+$8! = 40320$，$10! = 3628800$，到 $n = 10$ 還跑得完；$12!$ 約是 $4.8$ 億，
+再乘上 $n$ 就太慢了。 題目的 $n$ 不超過 $8$ 到 $10$，常常就是在暗示可以
+暴力枚舉。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{沒有從排好序的狀態開始}：從 \texttt{\{2, 1, 3\}} 開始，只會
+走過 $213$ 之後的排列，到 $321$ 就停了，共 $4$ 個，漏掉 $123$ 和 $132$。
+迴圈前先 \texttt{sort}。
+\item \textbf{寫成 \texttt{while}}：\texttt{while (next\_permutation(...))
+\{ ... \}} 第一次進迴圈前就已經換到下一個排列，少處理了最初的那一個，
+\texttt{1 2 3} 只會處理 $5$ 個排列。
+\item \textbf{以為有重複元素時也是 $n!$ 個}：\texttt{\{1, 1, 2\}} 只會走過
+\texttt{112}、\texttt{121}、\texttt{211} 三個。 \texttt{next\_permutation}
+依字典順序找下一個「不同的」排列，重複的不會出現兩次。 這通常正是題目要的，
+但不要拿 $n!$ 去算答案的個數。
+\end{itemize}
+
+\subsection{自己寫迴圈，還是用演算法}
+
+本章的演算法，每一個都能用幾行迴圈寫出來。 用哪一個，可以照下面的原則：
+
+\begin{itemize}
+\item \textbf{排序和二分搜尋一律用標準函式庫。} 自己寫的排序很難做到
+$O(n \log n)$ 又沒有錯；二分搜尋的邊界最容易差一，\texttt{lower\_bound}
+和 \texttt{upper\_bound} 已經把它定義清楚了。
+\item \textbf{名字比迴圈清楚時用演算法。} \texttt{count\_if(v.begin(),
+v.end(), [](int x) \{ return x > 4; \})} 一看就知道是計數；同樣的迴圈要讀
+完三四行才知道在做什麼。 \texttt{max\_element}、\texttt{reverse}、
+\texttt{accumulate}、\texttt{sort} 加 \texttt{unique} 加 \texttt{erase} 也
+是這樣。
+\item \textbf{一次走訪要做好幾件事時，寫迴圈。} 同時要算總和、最大值、
+偶數個數，呼叫三個演算法就走了三遍，也不比一個迴圈好讀。 條件很複雜、
+lambda 要寫十幾行時，也直接寫迴圈。
+\item \textbf{邊走訪邊增刪元素時，寫迴圈}，並且照第~\ref{sec:iterators}~節
+處理失效：刪除用 \texttt{it = v.erase(it)}，增加用下標或另一個
+\texttt{vector}。
+\end{itemize}
+
+標準函式庫的演算法通常跟自己寫的迴圈一樣快，所以選擇的標準是哪一種比較好
+讀、比較不容易寫錯。
+
+\section{本章練習}
+\label{sec:ch9-exercises}
+
+\begin{drills}[label=drills:ch9]
+\item 預測下面程式的輸出。
+\begin{code}{cpp}{練習：預測輸出}
+#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {4, 2, 7, 2, 9, 2};
+    cout << count(v.begin(), v.end(), 2) << ' '
+         << *max_element(v.begin(), v.end()) << ' '
+         << find(v.begin(), v.end(), 7) - v.begin() << '\n';
+
+    sort(v.begin(), v.end());
+    cout << lower_bound(v.begin(), v.end(), 2) - v.begin() << ' '
+         << upper_bound(v.begin(), v.end(), 2) - v.begin() << ' '
+         << lower_bound(v.begin(), v.end(), 5) - v.begin() << '\n';
+
+    v.erase(unique(v.begin(), v.end()), v.end());
+    cout << v.size() << ' ' << accumulate(v.begin(), v.end(), 0) << '\n';
+
+    int k = 3;
+    auto f = [k](int x) { return x * k; };
+    auto g = [&k](int x) { return x * k; };
+    k = 10;
+    cout << f(2) << ' ' << g(2) << '\n';
+    return 0;
+}
+\end{code}
+\item 下面的程式讀入 $n$ 個整數，印出有幾個不同的數字，再對之後讀到的每個
+數字回答「有」或「沒有」。 輸入
+\begin{code}{text}{練習 2 的輸入}
+6
+5 3 5 1 3 9
+9 4 1
+\end{code}
+時它輸出 \texttt{不同的數字有 6 個}、\texttt{9 沒有}、\texttt{4 沒有}、
+\texttt{1 沒有}。 找出程式裡的三個錯誤，並改好它，讓輸出變成
+\texttt{不同的數字有 4 個}、\texttt{9 有}、\texttt{4 沒有}、\texttt{1 有}。
+\begin{code}{cpp}{練習：去重複與查詢}
+#include <algorithm>
+#include <functional>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<int> v(n);
+    for (int &x : v) {
+        cin >> x;
+    }
+    unique(v.begin(), v.end());                  // 去掉重複
+    sort(v.begin(), v.end(), greater<int>());    // 由大到小
+    cout << "不同的數字有 " << v.size() << " 個" << '\n';
+
+    int x;
+    while (cin >> x) {
+        cout << x << (binary_search(v.begin(), v.end(), x) ? " 有" : " 沒有") << '\n';
+    }
+    return 0;
+}
+\end{code}
+\item （區間計數）讀入 $n$、$q$ 和 $n$ 個學生的分數，接著有 $q$ 次查詢，每
+次給 $l$、$r$，輸出分數在 $l$ 到 $r$ 之間（包含兩端）的學生有幾個。
+$n, q \le 2 \times 10^5$，每次查詢要在 $O(\log n)$ 內完成。 輸入
+\begin{code}{text}{練習 3 的輸入}
+8 4
+72 45 90 60 88 60 100 33
+60 89
+0 59
+91 99
+100 100
+\end{code}
+應該輸出 \texttt{4}、\texttt{2}、\texttt{0}、\texttt{1}。
+\item 讀入一串整數直到輸入結束，依「出現次數多的在前；次數相同時，數字小的
+在前」印出每個不同的數字和它的出現次數，一行一個。 輸入
+\texttt{4 6 2 6 4 9 6 2 7} 時應輸出 \texttt{6 3}、\texttt{2 2}、
+\texttt{4 2}、\texttt{7 1}、\texttt{9 1}。 先用第~8~章的 \texttt{map} 計
+數，再搬進 \texttt{vector} 用 lambda 排序。
+\item （旅行推銷員）有 $n$ 個城市（$2 \le n \le 8$），讀入 $n \times n$
+的距離矩陣，第 $i$ 列第 $j$ 個數字是城市 $i$ 到城市 $j$ 的距離。 從城市
+$1$ 出發，每個城市恰好經過一次，最後回到城市 $1$，求最短的總距離。 用
+\texttt{next\_permutation} 枚舉。 輸入
+\begin{code}{text}{練習 5 的輸入}
+4
+0 10 15 20
+10 0 35 25
+15 35 0 30
+20 25 30 0
+\end{code}
+應該輸出 \texttt{80}。
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\begin{enumerate}
+\item 輸出四行：\texttt{3 9 2}、\texttt{0 3 4}、\texttt{4 22}、
+\texttt{6 20}。 排序後是 \texttt{2 2 2 4 7 9}：第一個 $\ge 2$ 在下標 $0$，
+第一個 $> 2$ 在下標 $3$，$5$ 不存在，第一個 $\ge 5$ 是下標 $4$ 的 $7$。
+去掉重複剩 \texttt{2 4 7 9}，和是 $22$。 \texttt{f} 在建立時複製了
+\texttt{k} 的值 $3$，\texttt{g} 綁著 \texttt{k} 本身，呼叫時已經是 $10$。
+\item 三個錯誤：(1) \texttt{unique} 的回傳值沒有拿去 \texttt{erase}，大小
+還是 $6$；(2) \texttt{unique} 只去掉\textbf{相鄰}的重複，必須在排序之後；
+(3) \texttt{binary\_search} 預設假設範圍由小到大，\texttt{v} 卻是由大到小，
+前提不成立，結果沒有保證，在本書測試的環境下 $9$ 和 $1$ 都找不到。 改法是
+排成由小到大，再 \texttt{unique} 加 \texttt{erase}：
+\begin{code}{cpp}{練習 2：改好的去重複}
+sort(v.begin(), v.end());
+v.erase(unique(v.begin(), v.end()), v.end());
+\end{code}
+\texttt{binary\_search} 那一行不用改。 也可以保留由大到小，但
+\texttt{binary\_search} 要傳同一個比較函式：
+\texttt{binary\_search(v.begin(), v.end(), x, greater<int>())}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 3 參考解答}
+#include <algorithm>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> q;
+    vector<int> a(n);
+    for (int &x : a) {
+        cin >> x;
+    }
+    sort(a.begin(), a.end());
+    for (int i = 0; i < q; i++) {
+        int l, r;
+        cin >> l >> r;
+        auto lo = lower_bound(a.begin(), a.end(), l);   // 第一個 >= l
+        auto hi = upper_bound(a.begin(), a.end(), r);   // 第一個 > r
+        cout << hi - lo << '\n';
+    }
+    return 0;
+}
+\end{code}
+排序後是 \texttt{33 45 60 60 72 88 90 100}。 分數在 $[l, r]$ 的學生，就是
+從第一個 $\ge l$ 到第一個 $> r$ 之前的那一段，半開區間
+$[\text{lo}, \text{hi})$ 的長度就是答案。 沒有人在範圍內時，\texttt{lo}
+和 \texttt{hi} 指著同一格，相減是 $0$，不用另外處理。 排序 $O(n \log n)$，
+每次查詢 $O(\log n)$。
+\item 一種寫法：
+\begin{code}{cpp}{練習 4 參考解答（main 的內容）}
+map<int, int> cnt;
+int x;
+while (cin >> x) {
+    cnt[x]++;
+}
+vector<pair<int, int>> v(cnt.begin(), cnt.end());   // (數字, 次數)
+sort(v.begin(), v.end(), [](const pair<int, int> &a, const pair<int, int> &b) {
+    if (a.second != b.second) {
+        return a.second > b.second;   // 次數多的在前
+    }
+    return a.first < b.first;         // 次數相同，數字小的在前
+});
+for (const auto &[num, c] : v) {
+    cout << num << ' ' << c << '\n';
+}
+\end{code}
+\texttt{map} 只能依鍵排序，所以把內容搬進 \texttt{vector}。
+\texttt{vector<pair<int, int>> v(cnt.begin(), cnt.end())} 用第~\ref{sec:iterators}~節
+「用一個範圍建立容器」的寫法，\texttt{map} 的元素是
+\texttt{pair<const int, int>}，複製時會轉成 \texttt{pair<int, int>}。 比
+較函式先比次數（由大到小，用 \texttt{>}），相同再比數字（由小到大，用
+\texttt{<}），兩邊都是嚴格的比較。 因為 \texttt{map} 已經依數字由小到大，
+也可以只比次數、改用 \texttt{stable\_sort}。
+\item 一種寫法：
+\begin{code}{cpp}{練習 5 參考解答（讀完距離矩陣 d 之後）}
+vector<int> order;                  // 城市 1 以外的城市（下標從 0 開始）
+for (int i = 1; i < n; i++) {
+    order.push_back(i);
+}
+int best = -1;
+do {
+    int total = 0, cur = 0;         // 從城市 0 出發
+    for (int c : order) {
+        total += d[cur][c];
+        cur = c;
+    }
+    total += d[cur][0];             // 回到出發點
+    if (best == -1 || total < best) {
+        best = total;
+    }
+} while (next_permutation(order.begin(), order.end()));
+cout << best << '\n';
+\end{code}
+起點固定是城市 $1$（程式裡的下標 $0$），只要枚舉其餘 $n - 1$ 個城市的順序，
+共 $(n - 1)!$ 種，$n = 8$ 時是 $5040$ 種。 \texttt{order} 由 \texttt{push\_back}
+依序加入 $1, 2, \dots, n - 1$，已經由小到大，不用再排序。 範例的最短路線
+是 $1 \to 2 \to 4 \to 3 \to 1$，距離 $10 + 25 + 30 + 15 = 80$。
+\end{enumerate}
