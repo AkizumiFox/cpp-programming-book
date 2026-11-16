@@ -1,5 +1,5 @@
 .PHONY: help book chapters clean cleanall all
-.PHONY: ch1 ch2 ch3 ch4 ch5 ch6 ch7 ch8 ch9 ch10
+.PHONY: ch1 ch2 ch3 ch4 ch5 ch6 ch7 ch8 ch9 ch10 appA
 
 SHELL := /bin/bash
 SRCDIR := src
@@ -39,7 +39,8 @@ chapters: $(CHAPTERS_OUTDIR)/01_FromCToCpp.pdf \
            $(CHAPTERS_OUTDIR)/07_InheritanceAndPolymorphism.pdf \
            $(CHAPTERS_OUTDIR)/08_TemplatesAndSTL.pdf \
            $(CHAPTERS_OUTDIR)/09_IteratorsAndAlgorithms.pdf \
-           $(CHAPTERS_OUTDIR)/10_BridgeToAPCS.pdf
+           $(CHAPTERS_OUTDIR)/10_BridgeToAPCS.pdf \
+           $(CHAPTERS_OUTDIR)/A_Supplement.pdf
 	@echo "✓ All chapters compiled to $(CHAPTERS_OUTDIR)/"
 
 # Chapter Shortcuts
@@ -53,6 +54,7 @@ ch7: $(CHAPTERS_OUTDIR)/07_InheritanceAndPolymorphism.pdf
 ch8: $(CHAPTERS_OUTDIR)/08_TemplatesAndSTL.pdf
 ch9: $(CHAPTERS_OUTDIR)/09_IteratorsAndAlgorithms.pdf
 ch10: $(CHAPTERS_OUTDIR)/10_BridgeToAPCS.pdf
+appA: $(CHAPTERS_OUTDIR)/A_Supplement.pdf
 
 # Full book: copy the driver into BUILDDIR (do not compile ../src/book.tex in
 # place — latexmk/xelatex would write aux/log/minted next to the source).
@@ -70,9 +72,10 @@ define build_chapter
 	@mkdir -p $(BUILDDIR) $(CHAPTERS_OUTDIR)
 	@echo "Building chapter: $2..."
 	@wrapper="$(BUILDDIR)/chapter-$1.tex" && \
-	chap_num=$$(echo "$1" | grep -o '^[0-9]\+') && chap_num=$${chap_num:-1} && \
-	sed -e '/\\include{chapters/d' -e '/\\input{chapters/d' -e '/\\end{document}/d' -e '/\\maketitle/d' -e '/\\tableofcontents/d' -e '/\\frontmatter/d' -e '/\\mainmatter/d' $(SRCDIR)/book.tex > "$$wrapper" && \
-	echo "\\setcounter{chapter}{$$(( 10#$$chap_num - 1 ))}" >> "$$wrapper" && \
+	chap_num=$$(echo "$1" | grep -o '^[0-9]\+' || true) && chap_num=$${chap_num:-1} && \
+	sed -e '/\\include{chapters/d' -e '/\\input{chapters/d' -e '/\\appendix/d' -e '/\\end{document}/d' -e '/\\maketitle/d' -e '/\\tableofcontents/d' -e '/\\frontmatter/d' -e '/\\mainmatter/d' $(SRCDIR)/book.tex > "$$wrapper" && \
+	if [ "$$(echo $1 | cut -c1)" = "A" ]; then echo "\\appendix" >> "$$wrapper"; \
+	else echo "\\setcounter{chapter}{$$(( 10#$$chap_num - 1 ))}" >> "$$wrapper"; fi && \
 	echo "\\input{../$(SRCDIR)/chapters/$1/chapter}" >> "$$wrapper" && \
 	echo "\\end{document}" >> "$$wrapper" && \
 	cd $(BUILDDIR) && TEXINPUTS="$(BUILD_TEXINPUTS)" $(LATEXMK) chapter-$1.tex > /dev/null 2>&1 || \
@@ -101,6 +104,8 @@ $(CHAPTERS_OUTDIR)/09_IteratorsAndAlgorithms.pdf:
 	$(call build_chapter,09_IteratorsAndAlgorithms,Iterators and Algorithms)
 $(CHAPTERS_OUTDIR)/10_BridgeToAPCS.pdf:
 	$(call build_chapter,10_BridgeToAPCS,Bridge to APCS)
+$(CHAPTERS_OUTDIR)/A_Supplement.pdf:
+	$(call build_chapter,A_Supplement,Appendix A)
 
 clean:
 	@rm -rf $(BUILDDIR) \

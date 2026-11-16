@@ -537,9 +537,10 @@ LinkedList<T>\&) [with T = int]'}。 這正是 \texttt{= delete} 的作用：沒
 構加指標，整個資料結構包成類別模板，用解構子釋放記憶體，禁止或自己寫複製。
 寫完用 ASan 跑一次，確定沒有洩漏和懸置指標。
 
-\textbf{C++ 本身}：本書沒有談的主題還有不少，例如例外的處理（\texttt{try} 和
-\texttt{catch}）、檔案輸入輸出（\texttt{<fstream>}）、更完整的移動語意，以
-及 C++20 之後的新功能。 這些在寫大型程式時才比較常用，需要時再查
+\textbf{C++ 本身}：例外的處理（\texttt{try} 和 \texttt{catch}）、
+\texttt{std::array} 和計時放在附錄~A。 本書沒有談的主題
+還有不少，例如檔案輸入輸出（\texttt{<fstream>}）、更完整的移動語意，以及
+C++20 之後的新功能，附錄最後列了一些。 這些在寫大型程式時才比較常用，需要時再查
 cppreference.com 這類參考資料就好。 遇到看不懂的錯誤訊息，照第~8~章的方法，
 先找 \texttt{error:} 那一行和 \texttt{required from here}。
 

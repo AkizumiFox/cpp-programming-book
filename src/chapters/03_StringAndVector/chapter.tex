@@ -191,7 +191,7 @@ terminate called after throwing an instance of 'std::invalid_argument'
   what():  stoi
 \end{code}
 這是 C++ 的\textbf{例外}（exception）機制：函式遇到沒辦法處理的情況時
-「丟出」一個例外，沒人接住，程式就結束。 例外怎麼接住本書不談，現在只
+「丟出」一個例外，沒人接住，程式就結束。 例外怎麼接住，見附錄~A；現在只
 要知道 \texttt{stoi} 的輸入開頭必須是數字。 開頭是數字、後面接著別的字
 元時，\texttt{stoi} 只轉前面的數字，\texttt{stoi("42abc")} 是 $42$。
 \item \textbf{\texttt{substr} 的起點超出長度}：\texttt{date.substr(20)}

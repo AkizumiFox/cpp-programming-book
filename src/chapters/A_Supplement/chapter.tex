@@ -1,0 +1,367 @@
+% 附錄的章標題寫成「附錄 A」，不是「第 A 章」。
+\titleformat{\chapter}{\normalfont\huge\bfseries}{附錄~\thechapter}{1em}{}
+
+\chapter{補充：例外、\texttt{std::array} 與計時}
+\label{app:supplement}
+
+這篇附錄補三樣正文沒有講、但讀完之後很快會碰到的東西：例外的接法、固定大小
+的 \texttt{std::array}，以及用 \texttt{<chrono>} 量程式跑多久。 最後列出本
+書沒有涵蓋的主題，方便之後找進階的書。
+
+\section{例外}
+\label{sec:exceptions}
+
+\begin{crecap}[用回傳值回報錯誤]
+C 的函式出錯時，通常用回傳值告訴呼叫者：\texttt{fopen} 回傳 \texttt{NULL}，
+\texttt{malloc} 回傳 \texttt{NULL}，\texttt{scanf} 回傳成功讀到的個數。 呼
+叫者要自己寫 \texttt{if (fp == NULL)} 這樣的檢查，忘了檢查，程式就帶著錯誤
+的值繼續跑。 而且有些函式沒有多餘的回傳值可以表
+示錯誤：\texttt{atoi("abc")} 回傳 $0$，跟 \texttt{atoi("0")} 分不出來。
+\end{crecap}
+
+C++ 多了一種方式：\textbf{例外}（exception）。 函式遇到沒辦法處理的情況時，
+用 \texttt{throw} 丟出一個例外物件，函式立刻結束，一路往外層傳，直到某個
+\texttt{try} 區塊後面有對應型別的 \texttt{catch} 接住它。 第~3~章的
+\texttt{stoi}、\texttt{at()}、\texttt{substr} 出錯時就是丟出例外。
+
+\begin{example}[label=ex:exceptions]{cpp}{(exceptions.cpp) try、catch 與 throw}
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+using namespace std;
+
+int average(const vector<int> &v) {
+    if (v.empty()) {
+        throw invalid_argument("average: 空的 vector");
+    }
+    long long sum = 0;
+    for (int x : v) {
+        sum += x;
+    }
+    return sum / (long long)v.size();
+}
+
+int main() {
+    vector<string> words = {"42", "abc", "99999999999", "7"};
+    vector<int> nums;
+    for (const string &w : words) {
+        try {
+            nums.push_back(stoi(w));
+            cout << w << " 轉換成功" << '\n';
+        } catch (const invalid_argument &e) {
+            cout << w << " 不是數字（" << e.what() << "）" << '\n';
+        } catch (const out_of_range &e) {
+            cout << w << " 太大（" << e.what() << "）" << '\n';
+        }
+    }
+
+    try {
+        cout << average(nums) << '\n';
+        cout << average({}) << '\n';
+        cout << "這一行不會執行" << '\n';
+    } catch (const exception &e) {
+        cout << "錯誤：" << e.what() << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+42 轉換成功 \\
+abc 不是數字（stoi） \\
+99999999999 太大（stoi） \\
+7 轉換成功 \\
+24 \\
+錯誤：average: 空的 vector \\
+}
+
+\begin{itemize}
+\item \texttt{try \{ ... \}} 裡的程式照常執行。 其中某一行丟出例外時，
+\texttt{try} 裡剩下的程式都不執行，直接跳到型別相符的 \texttt{catch}。
+\texttt{"abc"} 那一輪，\texttt{push\_back} 和印出「轉換成功」都被跳過了。
+\item 一個 \texttt{try} 後面可以接好幾個 \texttt{catch}，由上往下比對型別。
+\texttt{stoi} 遇到不是數字的字串丟 \texttt{invalid\_argument}，數字太大丟
+\texttt{out\_of\_range}。 接住之後程式從整個 \texttt{try}-\texttt{catch} 的後
+面繼續，迴圈照樣處理下一個字串。
+\item 標準函式庫的例外都繼承自 \texttt{exception}（在 \texttt{<stdexcept>}
+裡），\texttt{what()} 回傳說明文字。 \texttt{catch (const exception \&e)}
+可以接住全部，這是第~7~章的多型：用基底類別的參考接住衍生類別的物件。
+\item \texttt{throw invalid\_argument("...")} 丟出自己的例外，括號裡的字串
+就是 \texttt{what()} 的內容。 \texttt{average} 不能計算時就丟出例外，不必
+回傳特殊值，呼叫者也沒辦法忽略它。 第二個 \texttt{try} 裡，
+\texttt{average(\{\})} 丟出例外之後，下一行沒有執行。
+\end{itemize}
+
+\subsection{沒接住會怎樣}
+
+沒有任何 \texttt{catch} 接住的例外，會讓程式呼叫 \texttt{std::terminate}
+中止。 下面的程式對三個元素的 \texttt{vector} 呼叫 \texttt{v.at(3)}：
+
+\begin{code}{cpp}{(uncaught.cpp) 沒有接住的例外}
+vector<int> v = {1, 2, 3};
+cout << "開始" << '\n';
+cout << v.at(3) << '\n';
+cout << "結束" << '\n';
+\end{code}
+
+\begin{code}{text}{在終端機執行}
+開始
+terminate called after throwing an instance of 'std::out_of_range'
+  what():  vector::_M_range_check: __n (which is 3) >= this->size() (which is 3)
+Aborted (core dumped)
+\end{code}
+
+前三行是程式印的，最後一行是 shell 印的，表示程式被中止，結束狀態是
+$134$。 「結束」沒有印出來。 在本書測試的環境下，把輸出導向檔案
+（\texttt{./uncaught > out.txt}）時，連「開始」都沒有寫進檔案：\texttt{cout}
+的內容還在緩衝區裡，程式就被中止了。 評分系統看到的是非正常結束（通常標成
+Runtime Error），輸出是什麼都不重要了。
+
+\subsection{解題時通常不用例外}
+
+例外適合「發生錯誤的地方不知道怎麼處理，要交給外層決定」的情況，例如讀設
+定檔的函式不知道檔案壞了該重試還是結束，就丟給呼叫者。 解題程式通常用不到：
+題目保證輸入格式正確，\texttt{stoi} 不會遇到 \texttt{"abc"}；程式出錯就是答案
+錯，接住例外也救不回來。 而且例外只處理「有人丟出」的錯誤，\texttt{v[10]}
+越界、整數溢位、懸置指標都是未定義行為，不會丟出例外，\texttt{try} 接不到。
+
+所以解題時看到 \texttt{terminate called after throwing ...}，要做的是看
+\texttt{what()} 找出是哪個函式、哪個下標，修好程式。 寫大一點的程式（例如
+資料結構課的作業要求對不合法的操作回報錯誤）時，再用 \texttt{throw} 和
+\texttt{try}-\texttt{catch}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{用傳值接例外}：\texttt{catch (exception e)} 會把例外物件複製
+成一個 \texttt{exception}，衍生類別的部分被切掉，就是第~7~章的物件切割。
+\texttt{-Wall} 會警告 \texttt{catching polymorphic type 'class
+std::exception' by value}；接住 \texttt{stoi} 的例外後，\texttt{e.what()}
+在本書測試的環境下印出 \texttt{std::exception}，原本的 \texttt{stoi} 不見了。
+一律寫 \texttt{catch (const exception \&e)}。
+\item \textbf{基底類別寫在前面}：接 \texttt{exception} 的 \texttt{catch}
+寫在接 \texttt{invalid\_argument} 的前面，後者永遠輪不到，因為
+\texttt{catch} 由上往下比對，前面的已經接住了。 \texttt{g++} 會警告
+\texttt{exception of type 'std::invalid\_argument' will be caught by earlier
+handler}。 具體的型別寫在前面，\texttt{exception} 放最後。
+\end{itemize}
+
+\section{\texttt{std::array}}
+\label{sec:std-array}
+
+\begin{crecap}[陣列不能整個指定]
+C 的陣列有幾個不方便的地方：
+
+\begin{code}{c}{C 陣列的限制}
+int a[5] = {3, 1, 4, 1, 5}, b[5];
+b = a;                  /* 編譯失敗 */
+void f(int a[5]) {
+    printf("%zu\n", sizeof(a));   /* 8，是指標的大小 */
+}
+\end{code}
+
+\texttt{b = a} 報 \texttt{assignment to expression with array type}，要用
+迴圈或 \texttt{memcpy} 複製。 陣列傳進函式時會變成指向第一個元素的指標，
+參數上的 \texttt{[5]} 沒有作用，\texttt{sizeof(a)} 是指標的大小
+（\texttt{gcc -Wall} 會警告），函式不知道陣列有多長，只能另外傳 \texttt{n}。
+\texttt{==} 比的也是兩個位址，不是內容。
+\end{crecap}
+
+\texttt{std::array<T, N>}（在 \texttt{<array>} 裡）是 $N$ 個 \texttt{T} 的固
+定大小陣列。 元素跟 C 陣列一樣直接放在物件裡，不另外配置記憶體，但它是一個
+真正的型別，上面這些限制都沒有了：
+
+\begin{example}[label=ex:array]{cpp}{(array\_demo.cpp) 複製、比較、傳給函式、放進 vector}
+#include <algorithm>
+#include <array>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+void print(const array<int, 5> &a) {
+    for (int x : a) {
+        cout << x << ' ';
+    }
+    cout << '(' << a.size() << " 個)" << '\n';
+}
+
+int main() {
+    array<int, 5> a = {3, 1, 4, 1, 5};
+    array<int, 5> b = a;               // 整個複製
+    b[0] = 9;
+    sort(b.begin(), b.end());
+    print(a);
+    print(b);
+    cout << (a == b) << ' ' << (a < b) << '\n';
+
+    // 每條邊是 {重量, 起點, 終點}，依重量排序
+    vector<array<int, 3>> edges = {{7, 1, 2}, {3, 2, 3}, {5, 1, 3}};
+    sort(edges.begin(), edges.end());
+    for (const auto &[w, u, v] : edges) {
+        cout << u << '-' << v << ' ' << w << '\n';
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+3 1 4 1 5 (5 個) \\
+1 1 4 5 9 (5 個) \\
+0 0 \\
+2-3 3 \\
+1-3 5 \\
+1-2 7 \\
+}
+
+\begin{itemize}
+\item \texttt{b = a} 複製全部元素，之後改 \texttt{b} 不影響 \texttt{a}。
+\texttt{==}、\texttt{<} 比的是內容，\texttt{<} 是字典順序，跟 \texttt{vector}
+一樣。
+\item 傳給函式時大小是型別的一部分，\texttt{print} 用 \texttt{a.size()} 就知
+道有幾個元素。 照第~2~章的原則用 \texttt{const} 參考傳。
+\item 有 \texttt{begin()}、\texttt{end()}，第~9~章的演算法都能用。
+\texttt{[]} 跟 \texttt{vector} 一樣不檢查越界，要檢查就用 \texttt{at()}。
+\item \texttt{array<int, 5> z\{\};} 的大括號讓所有元素都是 $0$。 沒有大括號
+的區域變數 \texttt{array<int, 5> z;} 跟 C 的區域陣列一樣不會初始化，裡面是
+垃圾值。
+\item \texttt{vector<array<int, 3>>} 常用來存「好幾個欄位都是整數」的資料，
+例如圖的邊。 比 \texttt{pair} 多一個欄位，又不用為它寫一個結構，排序時一樣
+是先比第一個欄位；用結構化綁定拆開。
+\end{itemize}
+
+什麼時候用哪一個：大小在寫程式時就固定（例如四個方向、三個欄位、$26$ 個英文
+字母的計數），用 \texttt{array}；大小要等執行時讀了輸入才知道，或者會增減，
+用 \texttt{vector}。 C 陣列仍然能用，但上面的限制都還在。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{大小用變數}：讀入 \texttt{n} 之後寫 \texttt{array<int, n> a;}，
+報 \texttt{error: the value of 'n' is not usable in a constant
+expression}。 \texttt{array} 的大小是型別的一部分，必須在編譯時就確定。
+要依輸入決定大小，用 \texttt{vector<int> a(n);}。
+\item \textbf{大小不同就是不同型別}：\texttt{array<int, 5>} 和
+\texttt{array<int, 6>} 是兩個型別，不能互相指定，也不能傳給同一個
+\texttt{print}。 這是固定大小的代價。
+\end{itemize}
+
+\section{用 \texttt{<chrono>} 計時}
+\label{sec:chrono}
+
+第~10~章用資料範圍估計演算法夠不夠快。 估計之外，有時也想實際量一段程式花
+了多久，例如比較兩種寫法。 \texttt{<chrono>} 的 \texttt{steady\_clock} 是一
+個只會往前走的時鐘，在要量的程式前後各讀一次，相減就是經過的時間：
+
+\begin{example}[label=ex:timing]{cpp}{(timing.cpp) 量 sort 花了多久}
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    const int n = 1000000;
+    vector<int> v(n);
+    for (int i = 0; i < n; i++) {
+        v[i] = (long long)i * 7919 % n;   // 打亂順序的 0 到 n - 1
+    }
+
+    auto start = chrono::steady_clock::now();
+    sort(v.begin(), v.end());
+    auto end = chrono::steady_clock::now();
+
+    auto ms = chrono::duration_cast<chrono::milliseconds>(
+        end - start);
+    cout << "sort " << n << " 個：" << ms.count() << " ms" << '\n';
+    cout << v[0] << ' ' << v[n - 1] << '\n';
+    return 0;
+}
+\end{example}
+
+\begin{code}{text}{本書測試的環境下，兩種編譯方式各執行一次}
+$ g++ -std=c++17 -Wall -Wextra timing.cpp -o timing && ./timing
+sort 1000000 個：775 ms
+0 999999
+$ g++ -std=c++17 -Wall -Wextra -O2 timing.cpp -o timing && ./timing
+sort 1000000 個：113 ms
+0 999999
+\end{code}
+
+\begin{itemize}
+\item \texttt{chrono::steady\_clock::now()} 回傳目前的時間點，兩個時間點相減
+得到一段時間。 \texttt{duration\_cast<chrono::milliseconds>} 把它換成毫秒，
+\texttt{.count()} 取出數字。 型別很長，所以都寫 \texttt{auto}。
+\item 毫秒數每次執行都不一樣。 在本書測試的環境下，不加 \texttt{-O2} 連跑三
+次是 $775$、$940$、$1990$ 毫秒，要比較時多跑幾次。 第二行是排序的結果，用來
+確認程式真的做完了，每次都一樣。
+\item 有沒有 \texttt{-O2} 差了好幾倍。 評分系統幾乎都開最佳化編譯，自己量時
+間也要加 \texttt{-O2}，結果才有參考價值。
+\end{itemize}
+
+\subsection{自己量的時間和評分系統的時間}
+
+評分系統顯示的時間跟上面量到的數字通常對不上。 評分系統量的是\textbf{整支
+程式}，包括讀輸入和印輸出，上面只量了中間一段；輸入有幾十萬個數字時，讀入本
+身就可能佔掉不少時間，所以第~1~章的輸入加速很重要。 很多評分系統量的是 CPU
+時間，\texttt{steady\_clock} 量的是實際經過的時間，電腦同時在跑別的程式時，
+後者會變長。 機器和編譯選項不同，速度也不同，自己電腦上的秒數不能直接拿去
+跟時間限制比。
+
+所以自己量的時間只適合拿來比較「同一台電腦上，兩種寫法哪個快、快多少」。
+程式能不能在時間限制內跑完，主要還是靠第~10~章的複雜度估計，計時只是確認。
+要量整支程式，Linux 和 macOS 上可以用 \texttt{time ./timing < in.txt}。
+
+\subsection{常見錯誤}
+
+\begin{itemize}
+\item \textbf{量的計算結果沒用到}：下面的迴圈算了 $10^9$ 次，但
+\texttt{sum} 從來沒有印出來：
+\begin{code}{cpp}{結果沒用到的迴圈（錯誤示範）}
+auto start = chrono::steady_clock::now();
+long long sum = 0;
+for (long long i = 0; i < 1000000000; i++) {
+    sum += i % 7;
+}
+auto end = chrono::steady_clock::now();
+\end{code}
+不加 \texttt{-O2} 時，在本書測試的環境下量到 \texttt{4525 ms}；加了
+\texttt{-O2}，量到 \texttt{0 ms}。 編譯器發現 \texttt{sum} 沒有被用到，整個
+迴圈直接刪掉了。 要量的計算，結果一定要用到，例如最後把 \texttt{sum} 印出
+來。
+\item \textbf{換成秒數，小數不見了}：
+\texttt{duration\_cast<chrono::seconds>} 會無條件捨去，跑了 $0.57$ 秒的程式
+印出 \texttt{0}。 用 \texttt{milliseconds}，或者寫
+\texttt{chrono::duration<double>(end - start).count()}，得到以秒為單位的小
+數（本書測試的環境下是 \texttt{0.570522}）。
+\item \textbf{用 \texttt{system\_clock} 計時}：\texttt{system\_clock} 是「現
+在幾點」的時鐘，系統校正時間時可能往回調，算出來的時間差可能是負的。 計時用
+\texttt{steady\_clock}。
+\end{itemize}
+
+\section{本書沒有涵蓋的主題}
+\label{sec:not-covered}
+
+下面這些也是標準 C++ 的一部分，本書沒有講。 要學的話可以讀 Bjarne
+Stroustrup 的《A Tour of C++》，它用不長的篇幅走過整個語言和標準函式庫；查單
+一函式的細節用 cppreference.com。
+
+\begin{itemize}
+\item \textbf{並行程式}（\texttt{<thread>}、\texttt{<mutex>}、\texttt{<future>}）：
+\texttt{thread} 讓程式同時跑好幾段程式碼，\texttt{mutex} 防止它們同時改同一
+個變數，\texttt{async} 把一個函式丟到背景執行、之後再拿結果。
+\item \textbf{正規表達式}（\texttt{<regex>}）：用一個樣式描述「長得像什麼的
+字串」，例如電子郵件地址，再拿來搜尋或取代。
+\item \textbf{concepts}（C++20）：替模板的型別參數寫出要求，例如「\texttt{T}
+要能用 \texttt{<} 比較」，不符合時錯誤訊息直接說哪個要求沒做到，不會像第~8~
+章那樣長。
+\item \textbf{可變參數模板}（variadic template）：參數個數不固定的模板，
+\texttt{template <typename... Args>}。 標準函式庫的 \texttt{make\_unique}、
+\texttt{emplace\_back} 就是這樣寫的。
+\item \textbf{type traits}（\texttt{<type\_traits>}）：在編譯時查詢型別的性
+質，例如「\texttt{T} 是不是整數型別」，讓模板依型別選擇不同的寫法。
+\item \textbf{\texttt{function} 與 \texttt{bind}}（\texttt{<functional>}）：
+\texttt{function<int(int)>} 可以存任何「收一個 \texttt{int}、回傳
+\texttt{int}」的東西，一般函式、lambda 都行，用來把函式存進變數或容器。
+\texttt{bind} 先固定函式的部分參數，現在多半改用 lambda。
+\end{itemize}
