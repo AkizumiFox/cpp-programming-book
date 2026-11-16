@@ -16,7 +16,7 @@
 - 第 8 章 PDF：[`output/chapters/08_TemplatesAndSTL.pdf`](output/chapters/08_TemplatesAndSTL.pdf)
 - 第 9 章 PDF：[`output/chapters/09_IteratorsAndAlgorithms.pdf`](output/chapters/09_IteratorsAndAlgorithms.pdf)
 - 第 10 章 PDF：[`output/chapters/10_BridgeToAPCS.pdf`](output/chapters/10_BridgeToAPCS.pdf)
-- 附錄 A（補充：例外、std::array 與計時）PDF（草稿）：[`output/chapters/A_Supplement.pdf`](output/chapters/A_Supplement.pdf)
+- 附錄 A（補充：例外、std::array 與計時）PDF：[`output/chapters/A_Supplement.pdf`](output/chapters/A_Supplement.pdf)
 - 原始碼：`src/`（XeLaTeX）
 
 ## 章節
