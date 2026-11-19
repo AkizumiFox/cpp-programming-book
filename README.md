@@ -18,6 +18,7 @@
 - 第 10 章 PDF：[`output/chapters/10_BridgeToAPCS.pdf`](output/chapters/10_BridgeToAPCS.pdf)
 - 附錄 A（補充：例外、std::array 與計時）PDF：[`output/chapters/A_Supplement.pdf`](output/chapters/A_Supplement.pdf)
 - 原始碼：`src/`（XeLaTeX）
+- 網頁版：[annotated.codes/learn/cpp](https://annotated.codes/learn/cpp)（一節一頁，手機也好讀）
 
 ## 章節
 
