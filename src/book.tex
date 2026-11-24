@@ -29,7 +29,8 @@
 % 本書排版套件（packages/ 目錄）
 % ---------------------------------------------------------------
 \usepackage{sleek}
-\usepackage{sleek-theorems}
+% sleek-theorems.sty 不載入：本書沒有用到定理類環境，而它依賴的 thmtools 和 2026-11 以後的
+% LaTeX 核心衝突（\newtheorem{lem}[thm] 會報「\c@lem already defined」），載入的話整本書編不過。
 \usepackage{sleek-code}
 \usepackage{sleek-diagrams}
 \usepackage{sleek-recap}
@@ -42,6 +43,14 @@
 \usepackage{titlesec}
 \titleformat{\chapter}{\normalfont\huge\bfseries}{第~\thechapter~章}{1em}{}
 \titlespacing*{\chapter}{0pt}{-20pt}{20pt}
+% 頁首與目錄標題中文化（預設是 CHAPTER 1. 和 CONTENTS）
+\renewcommand{\contentsname}{目錄}
+% 附錄的頁首寫「附錄 A」：附錄開始時 \@chapapp 會被換掉，和這裡存下的原值比較就知道。
+% （這幾行不能出現附錄指令的名字：Makefile 編單章時會刪掉含那個字的行。）
+\makeatletter
+\let\zh@chapapp\@chapapp
+\renewcommand{\chaptermark}[1]{\markboth{\ifx\@chapapp\zh@chapapp 第~\thechapter~章\else 附錄~\thechapter\fi\quad #1}{}}
+\makeatother
 
 % 行內程式碼（\texttt）不能斷行，段落裡出現較長的識別字時容易凸出右邊界；
 % 允許 TeX 多拉開一點字距來排版。
